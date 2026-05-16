@@ -46,6 +46,8 @@ const envSchema = z.object({
   OTP_LENGTH: z.coerce.number().int().min(4).max(8).default(6),
   OTP_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().positive().default(600),
   OTP_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(5),
+  OAUTH_MFA_ENABLED: z.coerce.boolean().default(true),
+  OAUTH_MFA_TTL_SECONDS: z.coerce.number().int().positive().default(600),
 
   // SMS / email
   SMS_PROVIDER: z.enum(['mock', 'msg91', 'sns']).default('mock'),

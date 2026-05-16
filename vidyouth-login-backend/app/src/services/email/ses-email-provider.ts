@@ -1,5 +1,6 @@
 import type {
   EmailProvider,
+  SendMfaOtpEmailInput,
   SendPasswordResetEmailInput,
   SendVerificationEmailInput,
 } from './email-provider.js';
@@ -55,6 +56,31 @@ export class SesEmailProvider implements EmailProvider {
       logContext: {
         type: 'password_reset',
         expiresAt: input.expiresAt.toISOString(),
+      },
+    });
+  }
+
+  async sendMfaOtpEmail(input: SendMfaOtpEmailInput): Promise<void> {
+    const expiresMin = Math.ceil(input.expiresInSec / 60);
+    await this.sendEmail({
+      to: input.to,
+      subject: 'Your Vidyouth sign-in code',
+      text: [
+        `Your Vidyouth sign-in code is ${input.code}.`,
+        '',
+        `It expires in ${expiresMin} minutes.`,
+        'If you did not try to sign in, you can ignore this email.',
+      ].join('\n'),
+      html: [
+        '<p>Your Vidyouth sign-in code is:</p>',
+        `<p><strong>${escapeHtml(input.code)}</strong></p>`,
+        `<p>It expires in ${expiresMin} minutes.</p>`,
+        '<p>If you did not try to sign in, you can ignore this email.</p>',
+      ].join(''),
+      logger: input.logger,
+      logContext: {
+        type: 'oauth_mfa_otp',
+        expiresInSec: input.expiresInSec,
       },
     });
   }

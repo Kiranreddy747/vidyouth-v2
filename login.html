@@ -827,6 +827,10 @@
       if (m) { m.textContent = 'Sign-in failed: ' + err.replace(/_/g, ' '); m.style.color = '#FCA5A5'; }
       return;
     }
+    if (p.get('oauth_mfa_required') === 'true') {
+      window.location.href = `verify.html${location.hash}`;
+      return;
+    }
     const at = p.get('access_token');
     if (!at) return;
     localStorage.setItem('vidyouth_access_token', at);

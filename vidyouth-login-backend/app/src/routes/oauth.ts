@@ -13,6 +13,7 @@
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { randomBytes } from 'node:crypto';
+import { z } from 'zod';
 import { env } from '../config/env.js';
 import {
   findIdentityByProviderSubject,
@@ -27,6 +28,11 @@ import {
 } from '../repositories/users.js';
 import { createAuthenticatedSession } from '../services/auth-service.js';
 import { recordAudit } from '../services/audit.js';
+import {
+  consumeOauthMfaChallenge,
+  createOauthMfaChallenge,
+  maskedMfaEmail,
+} from '../services/oauth-mfa.js';
 
 type Provider = IdentityProvider;
 
@@ -235,6 +241,23 @@ function successRedirect(
   reply.redirect(`${base}${frag}`);
 }
 
+function mfaRedirect(
+  reply: FastifyReply,
+  challenge: { token: string; email: string; expiresInSec: number; provider: Provider },
+) {
+  const base = env.OAUTH_SUCCESS_REDIRECT_URL.replace(/#.*$/, '').replace(
+    /\/[^/]*$/,
+    '/verify.html',
+  );
+  const frag =
+    '#oauth_mfa_required=true' +
+    `&mfa_token=${encodeURIComponent(challenge.token)}` +
+    `&provider=${encodeURIComponent(challenge.provider)}` +
+    `&email=${encodeURIComponent(maskedMfaEmail(challenge.email))}` +
+    `&expires_in=${challenge.expiresInSec}`;
+  reply.redirect(`${base}${frag}`);
+}
+
 function failRedirect(reply: FastifyReply, reason: string) {
   const base = env.OAUTH_SUCCESS_REDIRECT_URL.replace(/#.*$/, '').replace(
     /\/[^/]*$/,
@@ -312,6 +335,39 @@ async function startOauth(app: FastifyInstance, provider: Provider): Promise<voi
       const profile = await fetchProfile(config, accessToken);
       const user = await resolveUser(provider, profile);
 
+      if (env.OAUTH_MFA_ENABLED) {
+        if (!profile.email) {
+          await recordAudit({
+            userId: user.id,
+            action: 'oauth.mfa.failed',
+            ip: req.ip,
+            userAgent: req.headers['user-agent'],
+            meta: { provider, reason: 'missing_email' },
+            succeeded: false,
+          });
+          failRedirect(reply, 'oauth_mfa_email_required');
+          return;
+        }
+
+        const challenge = await createOauthMfaChallenge({
+          user,
+          provider,
+          providerSubject: profile.sub,
+          email: profile.email,
+          logger: req.log,
+        });
+        await recordAudit({
+          userId: user.id,
+          action: 'oauth.mfa.requested',
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
+          meta: { provider, identity: profile.sub },
+          succeeded: true,
+        });
+        mfaRedirect(reply, challenge);
+        return;
+      }
+
       const session = await createAuthenticatedSession({
         user,
         auditAction: 'login.success',
@@ -347,7 +403,76 @@ async function startOauth(app: FastifyInstance, provider: Provider): Promise<voi
   });
 }
 
+const mfaVerifyBody = z.object({
+  mfa_token: z.string().min(32).max(128),
+  code: z.string().regex(/^\d{4,8}$/),
+});
+
 export async function oauthRoutes(app: FastifyInstance): Promise<void> {
+  app.post('/auth/oauth/mfa/verify', async (req, reply) => {
+    const parsed = mfaVerifyBody.safeParse(req.body);
+    if (!parsed.success) {
+      reply.code(400).send({ error: 'invalid_request' });
+      return;
+    }
+
+    const challenge = await consumeOauthMfaChallenge({
+      token: parsed.data.mfa_token,
+      code: parsed.data.code,
+    });
+    if (!challenge) {
+      await recordAudit({
+        action: 'oauth.mfa.failed',
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+        meta: { reason: 'invalid_or_expired_code' },
+        succeeded: false,
+      });
+      reply.code(401).send({ error: 'invalid_or_expired_mfa_code' });
+      return;
+    }
+
+    const user = await findUserById(challenge.userId);
+    if (!user || !user.is_active) {
+      await recordAudit({
+        userId: challenge.userId,
+        action: 'oauth.mfa.failed',
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+        meta: { provider: challenge.provider, reason: 'inactive_or_missing_user' },
+        succeeded: false,
+      });
+      reply.code(401).send({ error: 'invalid_credentials' });
+      return;
+    }
+
+    const session = await createAuthenticatedSession({
+      user,
+      auditAction: 'login.success',
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+
+    await recordAudit({
+      userId: user.id,
+      action: 'oauth.mfa.verified',
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+      meta: {
+        provider: challenge.provider,
+        identity: challenge.providerSubject,
+      },
+      succeeded: true,
+    });
+
+    reply.send({
+      access_token: session.access_token,
+      refresh_token: session.refresh_token,
+      token_type: session.token_type,
+      expires_in: session.expires_in,
+    });
+  });
+
   await startOauth(app, 'google');
   await startOauth(app, 'microsoft');
 }
