@@ -1,0 +1,10 @@
+# Standalone admin service
+**/node_modules/
+**/dist/
+**/.env
+**/.env.local
+**/*.pem
+**/*.key
+**/secrets/
+.DS_Store
+Thumbs.db

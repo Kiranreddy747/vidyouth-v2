@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Vidyouth Admin Backend — Foundation Status & Code Walkthrough</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #1f2933; line-height: 1.5; font-size: 11px; margin: 0;
+  }
+  h1 { font-size: 24px; margin: 0 0 4px; color: #0b3d2e; }
+  h2 { font-size: 16px; margin: 26px 0 8px; color: #0b3d2e;
+       border-bottom: 2px solid #22c55e; padding-bottom: 4px; }
+  h3 { font-size: 13px; margin: 16px 0 6px; color: #15543f; }
+  p { margin: 6px 0; }
+  code, pre { font-family: "SF Mono", Consolas, "Courier New", monospace; }
+  code { background: #f1f5f9; padding: 1px 4px; border-radius: 3px; font-size: 10px; }
+  pre { background: #0f172a; color: #e2e8f0; padding: 12px 14px; border-radius: 6px;
+        font-size: 9.5px; overflow-x: auto; line-height: 1.45; white-space: pre-wrap; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 10px; }
+  th, td { border: 1px solid #cbd5e1; padding: 5px 7px; text-align: left; vertical-align: top; }
+  th { background: #ecfdf5; color: #0b3d2e; font-weight: 700; }
+  .meta { color: #64748b; font-size: 10px; margin: 2px 0; }
+  .tag { display: inline-block; background: #22c55e; color: #fff; font-size: 9px;
+         padding: 2px 8px; border-radius: 999px; font-weight: 700; letter-spacing: .04em; }
+  .tag.amber { background: #f59e0b; } .tag.slate { background: #64748b; }
+  .box { border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 14px; margin: 10px 0;
+         background: #f8fafc; }
+  .ok { color: #15803d; font-weight: 700; }
+  .no { color: #b91c1c; font-weight: 700; }
+  .cover { text-align: center; padding: 60px 0 30px; }
+  .cover .sub { color: #475569; font-size: 13px; margin-top: 8px; }
+  .rule { height: 3px; background: linear-gradient(90deg,#22c55e,#0b3d2e); margin: 18px 0; border:0; }
+  ul { margin: 6px 0 6px 18px; padding: 0; } li { margin: 3px 0; }
+  .pagebreak { page-break-before: always; }
+  footer { margin-top: 30px; border-top: 1px solid #cbd5e1; padding-top: 8px;
+           color: #64748b; font-size: 9px; }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <span class="tag">FOUNDATION COMPLETE · FOR TEAM REVIEW</span>
+  <h1>Vidyouth Admin Backend</h1>
+  <div class="sub">Foundation Status &amp; Code Walkthrough</div>
+  <div class="sub">Standalone Admin Control Panel Service</div>
+  <p class="meta">Document ID: VID-ADMIN-FOUND-2026-001 &nbsp;·&nbsp; Version 1.0 &nbsp;·&nbsp; Classification: Internal</p>
+  <p class="meta">Source spec: New PRD.docx — §7.6 Super Admin, §10 Admin Control Panel, §16.1 RBAC, §12 Data Model</p>
+  <p class="meta">Generated 2026-05-17 for engineering-team discussion</p>
+</div>
+
+<hr class="rule"/>
+
+<h2>1. Executive Summary</h2>
+<p>This document describes <strong>exactly the code that exists today</strong> for the Vidyouth
+Admin Control Panel — the <strong>foundation only</strong>. It is intended for the engineering
+team that will build the complete admin view on top of it.</p>
+<table>
+<tr><th>Item</th><th>Status</th></tr>
+<tr><td>Admin authentication + RBAC authorization</td><td><span class="ok">Built &amp; tested</span></td></tr>
+<tr><td>Admin dashboard statistics (PRD §10.1)</td><td><span class="ok">Built &amp; tested</span></td></tr>
+<tr><td>Feature toggle store (PRD §10.2)</td><td><span class="ok">Built &amp; tested</span></td></tr>
+<tr><td>Audit-log access (PRD §7.6)</td><td><span class="ok">Built &amp; tested</span></td></tr>
+<tr><td>Standalone separate service (own port, own deps)</td><td><span class="ok">Done</span></td></tr>
+<tr><td>Automated test suite</td><td><span class="ok">15 / 15 passing</span></td></tr>
+<tr><td>Complete admin view (content CMS, pricing, payments, org-approval, certification, vendor mgmt, notification templates, analytics)</td><td><span class="no">NOT started — next phase</span></td></tr>
+</table>
+<div class="box">
+<strong>Scope boundary (read this first):</strong> The "foundation" is the secure,
+RBAC-gated admin surface plus the four cross-cutting capabilities every admin
+screen needs (identity, dashboard stats, feature toggles, audit). It is NOT the
+full Admin Control Panel. The full panel attaches to the same authorization gate
+in the next phase — see §10.
+</div>
+
+<h2>2. Key Architecture Decision — Standalone Service</h2>
+<p>The admin backend is a <strong>separate, standalone service</strong>:
+<code>vidyouth-admin-backend/</code>, a sibling of <code>vidyouth-login-backend/</code>.
+It is not nested inside the login API.</p>
+<table>
+<tr><th>Concern</th><th>Decision</th></tr>
+<tr><td>Process / deploy</td><td>Independent service, its own <code>package.json</code>, its own port (default 8090; 8091 locally)</td></tr>
+<tr><td>Database</td><td>Shares the platform Postgres — reads <code>users</code>/<code>sessions</code>/<code>audit_events</code>, owns <code>feature_flags</code></td></tr>
+<tr><td>Sessions</td><td>Shares platform Redis — honours force-logout via the same <code>sess:{userId}</code> set</td></tr>
+<tr><td>Tokens</td><td>Verifies the <em>same</em> RS256 access tokens the login API issues — <strong>public key only, never signs</strong></td></tr>
+<tr><td>Login API impact</td><td><span class="ok">Zero</span> — the login backend was reverted clean; it contains no admin code</td></tr>
+</table>
+<p><strong>Why:</strong> independent blast radius, deploy cadence, and scaling for the
+admin panel; the login API stays minimal and unchanged. The trade-off is a small
+amount of duplicated infrastructure code (DB pool, JWT verify, audit writer),
+which is intentional for service isolation.</p>
+
+<h2>3. Repository Structure</h2>
+<pre>vidyouth-admin-backend/
+├── README.md
+├── .gitignore
+├── database/
+│   └── migrations/
+│       └── 001_feature_flags.sql      (owns this table; FKs shared users.id)
+└── app/
+    ├── package.json                    (own deps + scripts)
+    ├── tsconfig.json
+    ├── src/
+    │   ├── config/env.ts               (50 LOC)  env schema, PORT/DB/Redis/JWT-public
+    │   ├── db/pg.ts                     (41 LOC)  shared Postgres pool
+    │   ├── db/redis.ts                  (43 LOC)  shared Redis + isSessionActive()
+    │   ├── services/jwt.ts              (39 LOC)  verify-only RS256
+    │   ├── services/audit.ts            (38 LOC)  writes shared audit_events
+    │   ├── services/permissions.ts      (87 LOC)  RBAC matrix (PRD §16.1)
+    │   ├── middleware/auth.ts           (41 LOC)  Bearer + session gate
+    │   ├── middleware/rbac.ts           (48 LOC)  requirePermission / requireAdminPanel
+    │   ├── repositories/feature-flags.ts(48 LOC)  toggle persistence
+    │   ├── routes/health.ts             (26 LOC)  /livez /healthz
+    │   ├── routes/admin.ts             (147 LOC)  the admin endpoints
+    │   └── server.ts                   (102 LOC)  Fastify bootstrap
+    └── tests/                           (4 files, 15 cases, all green)
+</pre>
+<p class="meta">Total: 12 source files (~710 LOC) + 4 test files (~235 LOC) + 1 migration.</p>
+
+<div class="pagebreak"></div>
+<h2>4. Code Walkthrough — Every File</h2>
+
+<h3>config/env.ts</h3>
+<p>Zod-validated environment, crashes loudly at boot if misconfigured. Declares
+<code>PORT</code> (default 8090), <code>DATABASE_URL</code>, <code>REDIS_URL</code>,
+<code>JWT_PUBLIC_KEY</code>, <code>JWT_ISSUER</code>, <code>JWT_AUDIENCE</code>.
+Deliberately has <strong>no JWT private key</strong> — the admin service never signs tokens.</p>
+
+<h3>db/pg.ts &amp; db/redis.ts</h3>
+<p><code>pg.ts</code> — a small Postgres pool against the shared platform DB
+(<code>query()</code>, <code>pingDb()</code>). <code>redis.ts</code> — ioredis client
+against shared Redis; exposes <code>isSessionActive(userId, sessionId)</code> which
+checks the <code>sess:{userId}</code> ZSET. This is what makes <em>force-logout</em>
+(PRD FR-AUTH-003: "Super Admin can remotely invalidate all sessions") also lock
+the admin panel — a revoked token cannot reach <code>/admin/*</code>.</p>
+
+<h3>services/jwt.ts</h3>
+<p><code>verifyAccess(token)</code> only. Verifies RS256 signature, issuer, audience,
+and that the token kind is <code>access</code>. Uses the login API's public key, so
+admin and login share one identity system with no duplication of credentials.</p>
+
+<h3>services/permissions.ts — the RBAC source of truth</h3>
+<p>Implements the PRD §16.1 permission matrix as a per-role permission set.
+<code>can(role, permission)</code>, <code>permissionsFor(role)</code>,
+<code>assertCan()</code>. Per the PRD only <code>superadmin</code> holds
+<code>access_admin_panel</code>; Org Admin explicitly does not.</p>
+<table>
+<tr><th>Permission (PRD §16.1 / §7.6)</th><th>superadmin</th><th>admin (Org)</th><th>organisation</th><th>vendor</th><th>student (B2C)</th></tr>
+<tr><td>access_admin_panel</td><td class="ok">Yes</td><td class="no">No</td><td class="no">No</td><td class="no">No</td><td class="no">No</td></tr>
+<tr><td>manage_all_users</td><td class="ok">Yes</td><td>Own org</td><td class="no">No</td><td class="no">No</td><td class="no">No</td></tr>
+<tr><td>view_any_user_data</td><td class="ok">Yes</td><td>Own org</td><td>Own org</td><td class="no">No</td><td class="no">No</td></tr>
+<tr><td>create_edit_content / configure_pricing / payments / certificates / orgs / vendors / news / audit logs</td><td class="ok">Yes</td><td class="no">No</td><td class="no">No</td><td class="no">No</td><td class="no">No</td></tr>
+<tr><td>access_vendor_portal / mark_offline_attendance</td><td class="no">No</td><td class="no">No</td><td class="no">No</td><td class="ok">Yes</td><td class="no">No</td></tr>
+<tr><td>apply_to_jobs / build_resume</td><td class="no">No</td><td class="no">No</td><td class="no">No</td><td class="no">No</td><td class="ok">Yes</td></tr>
+</table>
+<p class="meta">PRD role names map to system roles: SUPER_ADMIN→superadmin, Org Admin→admin,
+ORG_USER→organisation, VENDOR→vendor, B2C_USER→student. (MENTOR is PRD V1.5, not in the enum yet.)</p>
+
+<h3>middleware/auth.ts &amp; middleware/rbac.ts</h3>
+<p><code>auth.ts</code> — extracts the Bearer token, <code>verifyAccess()</code>, then
+<code>isSessionActive()</code>; attaches <code>req.user</code>. <code>rbac.ts</code> —
+<code>requirePermission(p)</code> / <code>requireAdminPanel</code> run after auth and
+return <strong>403</strong> if the role lacks the permission, recording an
+<code>admin.access.denied</code> audit event. This is the "service level" half of the
+PRD rule: <em>"RBAC enforced at API gateway AND service level — never client-side only."</em></p>
+
+<h3>repositories/feature-flags.ts</h3>
+<p>List / get / set the feature toggles. Writes record <code>updated_by</code> +
+<code>updated_at</code> for accountability.</p>
+
+<h3>routes/admin.ts — the endpoints</h3>
+<p>Every route is gated <code>[app.auth, requireAdminPanel]</code> (valid non-revoked
+session → superadmin only). See the endpoint table in §6.</p>
+
+<h3>routes/health.ts &amp; server.ts</h3>
+<p><code>health.ts</code> — <code>/livez</code> (process up), <code>/healthz</code>
+(db + cache reachable). <code>server.ts</code> — Fastify bootstrap with helmet, CORS,
+rate-limit (100/min), the <code>auth</code> decorator, graceful shutdown, and a
+test-mode guard so the suite drives it via <code>app.inject()</code>.</p>
+
+<div class="pagebreak"></div>
+<h2>5. Security Model — Request Authorization Chain</h2>
+<pre>Bearer token
+   │
+   ▼  middleware/auth.ts
+1. signature + issuer + audience + kind=access   (services/jwt.ts, RS256 public key)
+2. session still active in shared Redis            (db/redis.ts isSessionActive)
+   │  ── fail → 401 (missing_token / invalid_token / session_revoked)
+   ▼  middleware/rbac.ts
+3. role has 'access_admin_panel'                   (services/permissions.ts §16.1)
+   │  ── fail → 403 forbidden  + audit 'admin.access.denied'
+   ▼
+4. route handler runs (routes/admin.ts)            + audit 'admin.access'
+</pre>
+<p>Authorization is decided entirely server-side from the verified token's role —
+nothing the client sends influences access.</p>
+
+<h2>6. API Endpoints (foundation)</h2>
+<table>
+<tr><th>Method &amp; Path</th><th>Auth</th><th>Purpose (PRD ref)</th></tr>
+<tr><td>GET /livez</td><td>public</td><td>Liveness probe</td></tr>
+<tr><td>GET /healthz</td><td>public</td><td>DB + Redis dependency check</td></tr>
+<tr><td>GET /admin/me</td><td>superadmin</td><td>Admin identity + resolved permissions (FR-AUTH-003 role routing)</td></tr>
+<tr><td>GET /admin/dashboard/stats</td><td>superadmin</td><td>Dashboard widgets — users by role, new users, sessions, pending org approvals, failed logins (§10.1)</td></tr>
+<tr><td>GET /admin/audit</td><td>superadmin</td><td>Audit-log access, filter by action, paginated (§7.6)</td></tr>
+<tr><td>GET /admin/feature-flags</td><td>superadmin</td><td>List all platform toggles (§10.2)</td></tr>
+<tr><td>PATCH /admin/feature-flags/:key</td><td>superadmin</td><td>Flip a toggle, persisted + audited (§10.2)</td></tr>
+</table>
+
+<h2>7. Data Model</h2>
+<p>Shared platform tables (owned by the login API, read here): <code>users</code>,
+<code>sessions</code>, <code>audit_events</code>, <code>organisations</code>.</p>
+<p>Owned by this service — <code>database/migrations/001_feature_flags.sql</code>:</p>
+<pre>feature_flags(
+  key TEXT PK, enabled BOOL, label TEXT, description TEXT,
+  updated_by UUID → users(id), created_at, updated_at )
+-- seeded with the 11 toggles enumerated in PRD §10.2
+</pre>
+<p class="meta">Applied against the shared DB AFTER the login API migrations (it FKs users.id).</p>
+
+<h2>8. Test Coverage — 15 / 15 passing</h2>
+<table>
+<tr><th>Suite</th><th>Cases</th></tr>
+<tr><td>permissions.test.ts (unit)</td><td>7 — admin-panel only for superadmin; every other role denied; vendor→vendor portal; student→jobs/resume; unknown role denied; full permission set; assertCan throws</td></tr>
+<tr><td>admin.test.ts (integration, real DB+Redis via app.inject)</td><td>8 — no token→401; student→403; superadmin→200+permissions; dashboard stats shape; flags list+toggle+restore; unknown flag→404; student→stats 403; audit returns events</td></tr>
+</table>
+
+<h2>9. Verification — Live Smoke (both services side-by-side)</h2>
+<table>
+<tr><th>Check</th><th>Result</th></tr>
+<tr><td>Admin service type-check (tsc --noEmit)</td><td><span class="ok">0 errors</span></td></tr>
+<tr><td>Admin test suite</td><td><span class="ok">15 / 15</span></td></tr>
+<tr><td>Login API :8080 (untouched)</td><td><span class="ok">200, still running</span></td></tr>
+<tr><td>Admin API /healthz</td><td><span class="ok">200, db+cache true</span></td></tr>
+<tr><td>/admin/me — no token</td><td><span class="ok">401</span></td></tr>
+<tr><td>/admin/me — superadmin</td><td><span class="ok">200 + 13 permissions</span></td></tr>
+<tr><td>/admin/dashboard/stats — superadmin</td><td><span class="ok">200, real counts</span></td></tr>
+<tr><td>/admin/feature-flags GET + PATCH</td><td><span class="ok">200, persisted + audited</span></td></tr>
+<tr><td>Any non-superadmin → /admin/*</td><td><span class="ok">403 (server-side)</span></td></tr>
+</table>
+
+<div class="pagebreak"></div>
+<h2>10. What Is NOT in the Foundation — Roadmap to the Complete Admin View</h2>
+<p>These build on the same <code>requireAdminPanel</code> gate. None are started yet.</p>
+<table>
+<tr><th>Module (PRD ref)</th><th>Notes</th></tr>
+<tr><td>Org approval workflow (§7.6, §FR-AUTH-002)</td><td>Recommended first — the dashboard already surfaces <code>pendingOrgApprovals</code></td></tr>
+<tr><td>Content CMS — Sector→Subtopic CRUD (§8.2)</td><td>Core USP hierarchy, drag-and-drop ordering</td></tr>
+<tr><td>Pricing &amp; subscriptions (§7.6)</td><td>Topic pricing, membership tiers, validity rules</td></tr>
+<tr><td>Payments &amp; refunds (§7.6, §10)</td><td>Transactions, Razorpay refund, GMV reports</td></tr>
+<tr><td>Certification config (§7.6)</td><td>Templates, score thresholds, revocation</td></tr>
+<tr><td>Vendor management (§7.5, §7.6)</td><td>Create/assign vendors to offline batches</td></tr>
+<tr><td>Notification templates (§10.3)</td><td>WYSIWYG + variable substitution per channel</td></tr>
+<tr><td>Admin analytics (§17.3)</td><td>Full dashboards + raw data export</td></tr>
+</table>
+<p>Cross-platform production items still open (tracked separately): AWS Secrets
+Manager loader, real SES/SNS/MSG91 delivery, S3 audit archive, AWS infra deploy.</p>
+
+<h2>11. How to Run It (for the team)</h2>
+<pre># prerequisites: the shared platform Postgres + Redis must be up
+cd vidyouth-admin-backend/app
+npm install
+# app/.env must provide: DATABASE_URL, REDIS_URL, JWT_PUBLIC_KEY,
+#   JWT_ISSUER, JWT_AUDIENCE  (point at the same Postgres/Redis the
+#   login API uses; JWT_PUBLIC_KEY = the login API's public key)
+
+# one-time, against the shared DB, AFTER the login API migrations:
+psql "$DATABASE_URL" -f ../database/migrations/001_feature_flags.sql
+
+npm run dev      # http://localhost:8090  (8091 locally if 8090 is taken)
+npm test         # 15/15
+npm run build    # tsc → dist/  (deployable artifact)
+</pre>
+<p>The service verifies tokens the <em>login API</em> issues — a user logs in via the
+login API (8080), receives a JWT; if their role is <code>superadmin</code> that same
+token is accepted by the admin API.</p>
+
+<footer>
+Vidyouth Intelligence Institute Pvt. Ltd. — Internal engineering document.
+Describes the admin backend foundation as built on 2026-05-17. The "complete
+admin view" (§10) is the next phase and is not represented as done anywhere in
+this document.
+</footer>
+
+</body>
+</html>
