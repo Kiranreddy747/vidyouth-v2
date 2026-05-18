@@ -77,7 +77,7 @@ const envSchema = z.object({
   OAUTH_SUCCESS_REDIRECT_URL: z.string().url().default('http://localhost:5500/newhome.html'),
 
   // Email verification + password reset (added by PR #2)
-  APP_BASE_URL: z.string().url().default('http://localhost:8080'),
+  APP_BASE_URL: z.string().url().default('http://localhost:3000'),
   EMAIL_VERIFICATION_TTL_SECONDS: z.coerce.number().int().positive().default(86_400),
   PASSWORD_RESET_TTL_SECONDS: z.coerce.number().int().positive().default(3_600),
 

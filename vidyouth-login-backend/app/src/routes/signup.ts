@@ -28,13 +28,17 @@ import { recordAudit } from '../services/audit.js';
 
 const signupBody = z
   .object({
-    displayName: z.string().trim().min(2).max(80),
+    displayName: z.string().trim().min(2).max(80).optional(),
+    display_name: z.string().trim().min(2).max(80).optional(),
     password: z.string().min(8).max(128),
-    channel: z.enum(['email', 'mobile']),
+    channel: z.enum(['email', 'mobile']).optional(),
     email: z.string().email().max(254).optional(),
     mobile: z.string().min(3).max(32).optional(),
   })
-  .refine((b) => (b.channel === 'email' ? !!b.email : !!b.mobile), {
+  .refine((b) => !!(b.displayName ?? b.display_name), {
+    message: 'display_name_required',
+  })
+  .refine((b) => ((b.channel ?? 'email') === 'email' ? !!b.email : !!b.mobile), {
     message: 'identifier_required_for_channel',
   });
 
@@ -45,7 +49,9 @@ export async function signupRoutes(app: FastifyInstance): Promise<void> {
       reply.code(400).send({ error: 'invalid_request', issues: parsed.error.issues });
       return;
     }
-    const { displayName, password, channel } = parsed.data;
+    const displayName = (parsed.data.displayName ?? parsed.data.display_name) as string;
+    const { password } = parsed.data;
+    const channel = parsed.data.channel ?? 'email';
 
     const strength = validatePasswordStrength(password);
     if (!strength.valid) {

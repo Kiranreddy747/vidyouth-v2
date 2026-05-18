@@ -56,7 +56,7 @@ services:
       SMS_PROVIDER: mock
       EMAIL_PROVIDER: mock
       EMAIL_FROM: no-reply@vidyouth.local
-      APP_BASE_URL: http://localhost:8080
+      APP_BASE_URL: http://localhost:3000
       MICROSOFT_TENANT_ID: common
     depends_on:
       postgres:

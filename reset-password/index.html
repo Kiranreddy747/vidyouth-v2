@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vidyouth | Reset password</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #150a04;
+      --panel: rgba(80, 50, 25, 0.28);
+      --border: rgba(232, 194, 140, 0.28);
+      --text: #faf0e0;
+      --muted: #d9c4a6;
+      --accent: #e8c28c;
+      --success: #86efac;
+      --danger: #fca5a5;
+    }
+    * { box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      margin: 0;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background:
+        radial-gradient(circle at 16% 14%, rgba(232, 194, 140, 0.18), transparent 32%),
+        radial-gradient(circle at 82% 78%, rgba(56, 189, 248, 0.14), transparent 30%),
+        linear-gradient(135deg, var(--bg), #2a170a);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main {
+      width: min(460px, 100%);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 30px;
+      background: var(--panel);
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.32);
+      backdrop-filter: blur(22px);
+    }
+    h1 { margin: 0 0 8px; font-size: 28px; line-height: 1.15; }
+    p { margin: 0 0 22px; color: var(--muted); line-height: 1.6; }
+    label {
+      display: block;
+      margin: 14px 0 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    input {
+      width: 100%;
+      min-height: 44px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0 12px;
+      background: rgba(255, 255, 255, 0.07);
+      color: var(--text);
+      font: inherit;
+    }
+    input:focus {
+      outline: 2px solid rgba(232, 194, 140, 0.36);
+      border-color: var(--accent);
+    }
+    button, a {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      min-height: 44px;
+      margin-top: 20px;
+      padding: 0 16px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: linear-gradient(135deg, var(--accent), #c99a5c);
+      color: #150a04;
+      font-weight: 800;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.65; cursor: not-allowed; }
+    .status {
+      display: none;
+      margin-top: 16px;
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.05);
+    }
+    .status.show { display: block; }
+    .status.success { color: var(--success); border-color: rgba(134, 239, 172, 0.45); }
+    .status.error { color: var(--danger); border-color: rgba(252, 165, 165, 0.45); }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Reset password</h1>
+    <p>Choose a new Vidyouth password for your account.</p>
+
+    <form id="resetForm">
+      <label for="password">New password</label>
+      <input id="password" type="password" autocomplete="new-password" minlength="8" required placeholder="At least 8 characters" />
+
+      <label for="confirm">Confirm password</label>
+      <input id="confirm" type="password" autocomplete="new-password" minlength="8" required placeholder="Re-enter password" />
+
+      <button id="submitBtn" type="submit">Reset password</button>
+      <div id="status" class="status" role="status" aria-live="polite"></div>
+      <a href="/login.html" id="loginLink" hidden>Go to sign in</a>
+    </form>
+  </main>
+
+  <script>
+    const API_BASE_URL = localStorage.getItem('vidyouth_api_base_url') || 'http://localhost:8080';
+    const token = new URLSearchParams(window.location.search).get('token');
+    const form = document.getElementById('resetForm');
+    const submitBtn = document.getElementById('submitBtn');
+    const statusEl = document.getElementById('status');
+    const loginLink = document.getElementById('loginLink');
+
+    function setStatus(kind, message) {
+      statusEl.className = `status show ${kind}`;
+      statusEl.textContent = message;
+      if (kind === 'success') loginLink.hidden = false;
+    }
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const password = document.getElementById('password').value;
+      const confirm = document.getElementById('confirm').value;
+
+      if (!token) {
+        setStatus('error', 'Reset token is missing. Open the full link from your email.');
+        return;
+      }
+      if (password !== confirm) {
+        setStatus('error', 'Passwords do not match.');
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Resetting...';
+      try {
+        const response = await fetch(`${API_BASE_URL}/auth/reset-password`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, new_password: password }),
+        });
+        const payload = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          if (payload.error === 'weak_password') {
+            setStatus('error', 'Use a stronger password and try again.');
+            return;
+          }
+          if (payload.error === 'invalid_or_expired_token') {
+            setStatus('error', 'This reset link is invalid or expired. Please request a new one.');
+            return;
+          }
+          setStatus('error', 'Could not reset password. Please try again.');
+          return;
+        }
+
+        form.reset();
+        setStatus('success', 'Password reset successfully. You can now sign in.');
+      } catch {
+        setStatus('error', 'Backend is not reachable. Make sure the API is running on localhost:8080.');
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Reset password';
+      }
+    });
+  </script>
+</body>
+</html>

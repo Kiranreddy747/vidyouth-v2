@@ -18,6 +18,7 @@ import {
 } from '../services/auth-service.js';
 import { recordAudit } from '../services/audit.js';
 import { issueOtp, verifyOtp } from '../services/otp.js';
+import { hashPassword, validatePasswordStrength } from '../services/passwords.js';
 import { getSmsProvider } from '../services/sms/index.js';
 
 export interface RequestPhoneOtpInput {
@@ -34,6 +35,11 @@ export interface VerifyPhoneOtpInput {
   userAgent?: string | undefined;
 }
 
+export interface SignupWithPhoneOtpInput extends VerifyPhoneOtpInput {
+  displayName: string;
+  password: string;
+}
+
 export class InvalidPhoneNumberError extends Error {
   constructor() {
     super('invalid_phone_number');
@@ -45,6 +51,23 @@ export class InvalidPhoneOtpError extends Error {
   constructor() {
     super('invalid_phone_otp');
     this.name = 'InvalidPhoneOtpError';
+  }
+}
+
+export class PhoneSignupUnavailableError extends Error {
+  constructor() {
+    super('phone_signup_unavailable');
+    this.name = 'PhoneSignupUnavailableError';
+  }
+}
+
+export class WeakPhoneSignupPasswordError extends Error {
+  issues: string[];
+
+  constructor(issues: string[]) {
+    super('weak_password');
+    this.name = 'WeakPhoneSignupPasswordError';
+    this.issues = issues;
   }
 }
 
@@ -107,7 +130,7 @@ export async function verifyPhoneOtp(
 
   if (!user) {
     try {
-      user = await createPhoneUser(phoneNumber);
+      user = await createPhoneUser({ phoneNumber });
       created = true;
     } catch (err) {
       if (!isUniqueViolation(err)) throw err;
@@ -150,6 +173,70 @@ export async function verifyPhoneOtp(
     ip: input.ip,
     userAgent: input.userAgent,
   });
+}
+
+export async function signupWithPhoneOtp(input: SignupWithPhoneOtpInput): Promise<UserRecord> {
+  const phoneNumber = normalizePhoneNumber(input.phoneNumber);
+  const strength = validatePasswordStrength(input.password);
+  if (!strength.valid) {
+    await recordAudit({
+      action: 'phone.otp.failed',
+      ip: input.ip,
+      userAgent: input.userAgent,
+      meta: { phone_number: phoneNumber, reason: 'weak_password', issues: strength.issues },
+      succeeded: false,
+    });
+    throw new WeakPhoneSignupPasswordError(strength.issues);
+  }
+
+  const ok = await verifyOtp('sms', phoneNumber, input.code);
+  if (!ok) {
+    await recordAudit({
+      action: 'phone.otp.failed',
+      ip: input.ip,
+      userAgent: input.userAgent,
+      meta: { phone_number: phoneNumber },
+      succeeded: false,
+    });
+    throw new InvalidPhoneOtpError();
+  }
+
+  const existing = await findUserByPhone(phoneNumber);
+  if (existing) {
+    await recordAudit({
+      userId: existing.id,
+      action: 'account.created',
+      ip: input.ip,
+      userAgent: input.userAgent,
+      meta: { provider: 'phone', reason: 'phone_exists' },
+      succeeded: false,
+    });
+    throw new PhoneSignupUnavailableError();
+  }
+
+  const passwordHash = await hashPassword(input.password);
+  let user: UserRecord;
+  try {
+    user = await createPhoneUser({
+      phoneNumber,
+      passwordHash,
+      displayName: input.displayName,
+    });
+  } catch (err) {
+    if (!isUniqueViolation(err)) throw err;
+    throw new PhoneSignupUnavailableError();
+  }
+
+  await recordAudit({
+    userId: user.id,
+    action: 'account.created',
+    ip: input.ip,
+    userAgent: input.userAgent,
+    meta: { provider: 'phone', phone_number: phoneNumber },
+    succeeded: true,
+  });
+
+  return user;
 }
 
 // TODO(phone-normalization): replace the simple E.164 check with libphonenumber.
