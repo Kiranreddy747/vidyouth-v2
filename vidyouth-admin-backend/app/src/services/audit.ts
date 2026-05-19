@@ -27,7 +27,11 @@ export type AuditAction =
   | 'pricing.changed'
   | 'payment.refunded'
   | 'wallet.adjusted'
-  | 'payment.config.changed';
+  | 'payment.config.changed'
+  | 'cert.template.changed'
+  | 'cert.rule.changed'
+  | 'cert.issued'
+  | 'cert.revoked';
 
 export interface AuditEvent {
   userId?: string | undefined;
