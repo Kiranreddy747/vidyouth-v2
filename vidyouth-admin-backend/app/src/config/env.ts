@@ -62,6 +62,11 @@ const envSchema = z.object({
   JWT_PUBLIC_KEY: optionalEnv,
   JWT_ISSUER: z.string().default('vidyouth.auth'),
   JWT_AUDIENCE: z.string().default('vidyouth.lms'),
+
+  // Used by admin-initiated password reset (M2) to build the reset link
+  // the login API consumes. Mirrors the login service defaults.
+  APP_BASE_URL: z.string().url().default('http://localhost:3000'),
+  PASSWORD_RESET_TTL_SECONDS: z.coerce.number().int().positive().default(3_600),
 });
 
 export type Env = z.infer<typeof envSchema>;

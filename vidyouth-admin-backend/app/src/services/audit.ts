@@ -14,7 +14,14 @@ export type AuditAction =
   | 'org.rejected'
   | 'org.suspended'
   | 'org.reactivated'
-  | 'admin.setting.changed';
+  | 'admin.setting.changed'
+  | 'user.updated'
+  | 'user.deactivated'
+  | 'user.reactivated'
+  | 'user.force_logout'
+  | 'user.unlocked'
+  | 'user.password_reset_issued'
+  | 'user.impersonate_attempt';
 
 export interface AuditEvent {
   userId?: string | undefined;

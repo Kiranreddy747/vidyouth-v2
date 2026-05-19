@@ -18,6 +18,7 @@ import { closeRedis } from './db/redis.js';
 import { healthRoutes } from './routes/health.js';
 import { adminRoutes } from './routes/admin.js';
 import { organisationRoutes } from './routes/organisations.js';
+import { userRoutes } from './routes/users.js';
 import { authRequired } from './middleware/auth.js';
 
 declare module 'fastify' {
@@ -64,6 +65,7 @@ export async function buildApp(opts: BuildAppOptions = {}) {
   await app.register(healthRoutes);
   await app.register(adminRoutes);
   await app.register(organisationRoutes);
+  await app.register(userRoutes);
 
   app.setErrorHandler((err, req, reply) => {
     req.log.error({ err }, 'unhandled error');
