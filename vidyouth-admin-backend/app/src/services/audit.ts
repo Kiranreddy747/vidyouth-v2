@@ -31,7 +31,12 @@ export type AuditAction =
   | 'cert.template.changed'
   | 'cert.rule.changed'
   | 'cert.issued'
-  | 'cert.revoked';
+  | 'cert.revoked'
+  | 'vendor.created'
+  | 'vendor.updated'
+  | 'batch.created'
+  | 'batch.updated'
+  | 'batch.vendor_assigned';
 
 export interface AuditEvent {
   userId?: string | undefined;

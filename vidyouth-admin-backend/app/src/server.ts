@@ -23,6 +23,7 @@ import { contentRoutes } from './routes/content.js';
 import { pricingRoutes } from './routes/pricing.js';
 import { paymentRoutes } from './routes/payments.js';
 import { certificationRoutes } from './routes/certification.js';
+import { vendorRoutes } from './routes/vendors.js';
 import { authRequired } from './middleware/auth.js';
 
 declare module 'fastify' {
@@ -74,6 +75,7 @@ export async function buildApp(opts: BuildAppOptions = {}) {
   await app.register(pricingRoutes);
   await app.register(paymentRoutes);
   await app.register(certificationRoutes);
+  await app.register(vendorRoutes);
 
   app.setErrorHandler((err, req, reply) => {
     req.log.error({ err }, 'unhandled error');
