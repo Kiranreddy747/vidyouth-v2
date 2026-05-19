@@ -8,5 +8,7 @@
  */
 
 process.env.NODE_ENV = 'test';
+process.env.EMAIL_PROVIDER = 'mock';
+process.env.SMS_PROVIDER = 'mock';
 // The test helper passes `logger: false` to buildApp(), so logs stay quiet
 // without touching LOG_LEVEL (whose Zod enum has no "silent" member).

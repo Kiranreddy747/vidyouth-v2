@@ -1,22 +1,22 @@
 # Local-dev compose. Brings up Postgres + Redis + the API on one network so a
 # fresh clone can run `docker compose up` and hit http://localhost:8080/healthz.
 #
-# Docker Compose also reads ./env automatically for ${VARIABLE} values.
+# Docker Compose reads .env automatically for ${VARIABLE} values.
 services:
   postgres:
     image: postgres:16-alpine
     container_name: vidyouth-postgres
     environment:
-      POSTGRES_DB: vidyouth_lms
-      POSTGRES_USER: vidyouth
-      POSTGRES_PASSWORD: devpass
+      POSTGRES_DB: ${POSTGRES_DB:-vidyouth_lms}
+      POSTGRES_USER: ${POSTGRES_USER:-vidyouth}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devpass}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./database/migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U vidyouth -d vidyouth_lms"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vidyouth} -d ${POSTGRES_DB:-vidyouth_lms}"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -25,7 +25,7 @@ services:
     image: redis:7-alpine
     container_name: vidyouth-redis
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -41,7 +41,7 @@ services:
       NODE_ENV: development
       PORT: 8080
       LOG_LEVEL: ${LOG_LEVEL:-debug}
-      DATABASE_URL: postgres://vidyouth:devpass@postgres:5432/vidyouth_lms
+      DATABASE_URL: postgres://${POSTGRES_USER:-vidyouth}:${POSTGRES_PASSWORD:-devpass}@postgres:5432/${POSTGRES_DB:-vidyouth_lms}
       PG_POOL_MAX: ${PG_POOL_MAX:-10}
       PG_POOL_IDLE_MS: ${PG_POOL_IDLE_MS:-10000}
       REDIS_URL: redis://redis:6379
@@ -95,7 +95,7 @@ services:
       redis:
         condition: service_healthy
     ports:
-      - "8080:8080"
+      - "${API_PORT:-8080}:8080"
 
 volumes:
   pgdata:

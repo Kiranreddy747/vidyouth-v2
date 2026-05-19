@@ -31,7 +31,7 @@ import { recordAudit } from '../services/audit.js';
 import {
   consumeOauthMfaChallenge,
   createOauthMfaChallenge,
-  maskedMfaEmail,
+  resendOauthMfaChallenge,
 } from '../services/oauth-mfa.js';
 
 type Provider = IdentityProvider;
@@ -253,7 +253,7 @@ function mfaRedirect(
     '#oauth_mfa_required=true' +
     `&mfa_token=${encodeURIComponent(challenge.token)}` +
     `&provider=${encodeURIComponent(challenge.provider)}` +
-    `&email=${encodeURIComponent(maskedMfaEmail(challenge.email))}` +
+    `&email=${encodeURIComponent(challenge.email)}` +
     `&expires_in=${challenge.expiresInSec}`;
   reply.redirect(`${base}${frag}`);
 }
@@ -408,7 +408,58 @@ const mfaVerifyBody = z.object({
   code: z.string().regex(/^\d{4,8}$/),
 });
 
+const mfaResendBody = z.object({
+  mfa_token: z.string().min(32).max(128),
+});
+
 export async function oauthRoutes(app: FastifyInstance): Promise<void> {
+  app.post('/auth/oauth/mfa/resend', async (req, reply) => {
+    const parsed = mfaResendBody.safeParse(req.body);
+    if (!parsed.success) {
+      reply.code(400).send({ error: 'invalid_request' });
+      return;
+    }
+
+    try {
+      const challenge = await resendOauthMfaChallenge({
+        token: parsed.data.mfa_token,
+        logger: req.log,
+      });
+      if (!challenge) {
+        await recordAudit({
+          action: 'oauth.mfa.failed',
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
+          meta: { reason: 'invalid_or_expired_mfa_token' },
+          succeeded: false,
+        });
+        reply.code(401).send({ error: 'invalid_or_expired_mfa_token' });
+        return;
+      }
+
+      await recordAudit({
+        userId: challenge.userId,
+        action: 'oauth.mfa.requested',
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+        meta: { provider: challenge.provider, identity: challenge.providerSubject, resend: true },
+        succeeded: true,
+      });
+
+      reply.send({
+        status: 'sent',
+        expires_in: challenge.expiresInSec,
+        email: challenge.email,
+      });
+    } catch (err) {
+      if ((err as Error).message === 'otp_rate_limited') {
+        reply.code(429).send({ error: 'otp_rate_limited' });
+        return;
+      }
+      throw err;
+    }
+  });
+
   app.post('/auth/oauth/mfa/verify', async (req, reply) => {
     const parsed = mfaVerifyBody.safeParse(req.body);
     if (!parsed.success) {

@@ -142,13 +142,23 @@ export async function createUser(input: CreateUserInput): Promise<UserRecord> {
   return result.rows[0] as UserRecord;
 }
 
-export async function createPhoneUser(phoneNumber: string): Promise<UserRecord> {
+export interface CreatePhoneUserInput {
+  phoneNumber: string;
+  passwordHash?: string | null;
+  displayName?: string | null;
+}
+
+export async function createPhoneUser(input: CreatePhoneUserInput): Promise<UserRecord> {
   const result = await query<UserRecord>(
     `INSERT INTO users
-       (role, mobile, phone_number, mobile_verified_at, phone_verified_at, display_name)
-     VALUES ('student', $1, $1, NOW(), NOW(), $2)
+       (role, mobile, phone_number, mobile_verified_at, phone_verified_at, password_hash, display_name)
+     VALUES ('student', $1, $1, NOW(), NOW(), $2, $3)
      RETURNING ${userColumns}`,
-    [phoneNumber, `Student ${phoneNumber.slice(-4)}`],
+    [
+      input.phoneNumber,
+      input.passwordHash ?? null,
+      input.displayName ?? `Student ${input.phoneNumber.slice(-4)}`,
+    ],
   );
   return result.rows[0] as UserRecord;
 }

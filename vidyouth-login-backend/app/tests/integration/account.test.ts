@@ -109,4 +109,23 @@ describe('password reset', () => {
     });
     assert.equal(r.status, 400);
   });
+
+  test('same password rejects with same_password', async () => {
+    const email = uniqueEmail('prs');
+    const currentPassword = 'SamePass123';
+    const userId = await signup(email, currentPassword);
+    const raw = randomBytes(32).toString('base64url');
+    await createResetToken({
+      userId,
+      tokenHash: hashResetToken(raw),
+      expiresAt: new Date(Date.now() + 3600_000),
+    });
+
+    const r = await post('/auth/password-reset/confirm', {
+      token: raw,
+      newPassword: currentPassword,
+    });
+    assert.equal(r.status, 400);
+    assert.equal(r.json<{ error: string }>().error, 'same_password');
+  });
 });

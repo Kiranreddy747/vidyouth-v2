@@ -26,6 +26,8 @@ export interface OauthMfaChallenge {
 const challengeKey = (token: string) => `oauthmfa:${token}`;
 const otpIdentifier = (token: string) => `oauthmfa:${token}`;
 
+type StoredOauthMfaChallenge = Omit<OauthMfaChallenge, 'token' | 'expiresInSec'>;
+
 function maskEmail(email: string): string {
   const [local = '', domain = ''] = email.split('@');
   if (!domain) return email;
@@ -77,10 +79,40 @@ export async function createOauthMfaChallenge(input: {
   return challenge;
 }
 
+export async function resendOauthMfaChallenge(input: {
+  token: string;
+  logger: FastifyBaseLogger;
+}): Promise<OauthMfaChallenge | null> {
+  const key = challengeKey(input.token);
+  const raw = await redis.get(key);
+  if (!raw) return null;
+
+  const ttl = await redis.ttl(key);
+  if (ttl === 0 || ttl < -1) return null;
+
+  const parsed = JSON.parse(raw) as StoredOauthMfaChallenge;
+  const otp = await issueOtp('email', otpIdentifier(input.token));
+  const expiresInSec =
+    ttl > 0 ? Math.min(ttl, otp.expiresInSec) : Math.min(env.OAUTH_MFA_TTL_SECONDS, otp.expiresInSec);
+
+  await getEmailProvider().sendMfaOtpEmail({
+    to: parsed.email,
+    code: otp.code,
+    expiresInSec,
+    logger: input.logger,
+  });
+
+  return {
+    token: input.token,
+    ...parsed,
+    expiresInSec,
+  };
+}
+
 export async function consumeOauthMfaChallenge(input: {
   token: string;
   code: string;
-}): Promise<Omit<OauthMfaChallenge, 'token' | 'expiresInSec'> | null> {
+}): Promise<StoredOauthMfaChallenge | null> {
   const raw = await redis.get(challengeKey(input.token));
   if (!raw) return null;
 

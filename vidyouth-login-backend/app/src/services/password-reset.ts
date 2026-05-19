@@ -11,16 +11,22 @@ import { env } from '../config/env.js';
 import {
   consumeResetToken,
   createResetToken,
+  findValidResetToken,
   revokeUserResetTokens,
 } from '../repositories/password-reset.js';
 import {
   findActiveUserByEmail,
+  findUserById,
+  findUserByPhone,
   updateUserPassword,
 } from '../repositories/users.js';
 import { recordAudit } from '../services/audit.js';
 import { getEmailProvider } from '../services/email/index.js';
-import { hashPassword, validatePasswordStrength } from '../services/passwords.js';
+import { issueOtp, verifyOtp } from '../services/otp.js';
+import { hashPassword, validatePasswordStrength, verifyPassword } from '../services/passwords.js';
+import { normalizePhoneNumber } from '../services/phone-auth.js';
 import { endAllSessions } from '../services/sessions.js';
+import { getSmsProvider } from '../services/sms/index.js';
 
 export interface RequestPasswordResetInput {
   email: string;
@@ -31,6 +37,21 @@ export interface RequestPasswordResetInput {
 
 export interface ResetPasswordInput {
   token: string;
+  newPassword: string;
+  ip?: string | undefined;
+  userAgent?: string | undefined;
+}
+
+export interface RequestPhonePasswordResetInput {
+  phoneNumber: string;
+  ip?: string | undefined;
+  userAgent?: string | undefined;
+  logger: FastifyBaseLogger;
+}
+
+export interface ResetPasswordWithPhoneOtpInput {
+  phoneNumber: string;
+  code: string;
   newPassword: string;
   ip?: string | undefined;
   userAgent?: string | undefined;
@@ -50,6 +71,20 @@ export class WeakPasswordResetPasswordError extends Error {
     super('weak_password');
     this.name = 'WeakPasswordResetPasswordError';
     this.issues = issues;
+  }
+}
+
+export class SamePasswordResetPasswordError extends Error {
+  constructor() {
+    super('same_password');
+    this.name = 'SamePasswordResetPasswordError';
+  }
+}
+
+export class InvalidPhonePasswordResetOtpError extends Error {
+  constructor() {
+    super('invalid_phone_password_reset_otp');
+    this.name = 'InvalidPhonePasswordResetOtpError';
   }
 }
 
@@ -134,8 +169,45 @@ export async function resetPassword(input: ResetPasswordInput): Promise<void> {
   }
 
   const tokenHash = hashResetToken(input.token);
-  const consumed = await consumeResetToken(tokenHash);
+  const validToken = await findValidResetToken(tokenHash);
 
+  if (!validToken) {
+    await recordAudit({
+      action: 'password.reset.failed',
+      ip: input.ip,
+      userAgent: input.userAgent,
+      meta: { reason: 'invalid_or_expired' },
+      succeeded: false,
+    });
+    throw new InvalidPasswordResetTokenError();
+  }
+
+  const userForComparison = await findUserById(validToken.user_id);
+  if (!userForComparison || !userForComparison.is_active) {
+    await recordAudit({
+      userId: validToken.user_id,
+      action: 'password.reset.failed',
+      ip: input.ip,
+      userAgent: input.userAgent,
+      meta: { reason: 'user_not_found' },
+      succeeded: false,
+    });
+    throw new InvalidPasswordResetTokenError();
+  }
+  if (userForComparison.password_hash
+      && await verifyPassword(input.newPassword, userForComparison.password_hash)) {
+    await recordAudit({
+      userId: userForComparison.id,
+      action: 'password.reset.failed',
+      ip: input.ip,
+      userAgent: input.userAgent,
+      meta: { reason: 'same_password' },
+      succeeded: false,
+    });
+    throw new SamePasswordResetPasswordError();
+  }
+
+  const consumed = await consumeResetToken(tokenHash);
   if (!consumed) {
     await recordAudit({
       action: 'password.reset.failed',
@@ -180,6 +252,114 @@ export async function resetPassword(input: ResetPasswordInput): Promise<void> {
   // TODO(MFA-reset): require MFA/passkey recovery for privileged accounts.
 }
 
+export async function requestPhonePasswordReset(
+  input: RequestPhonePasswordResetInput,
+): Promise<void> {
+  const phoneNumber = normalizePhoneNumber(input.phoneNumber);
+  const user = await findUserByPhone(phoneNumber);
+
+  // Generic audit/response behavior prevents phone-number enumeration.
+  if (!user || !user.is_active) {
+    await recordAudit({
+      userId: user?.id,
+      action: 'password.reset.requested',
+      ip: input.ip,
+      userAgent: input.userAgent,
+      meta: { channel: 'sms', delivered: false },
+      succeeded: true,
+    });
+    return;
+  }
+
+  const otp = await issueOtp('sms', phoneNumber);
+  await getSmsProvider().sendOtp({
+    to: phoneNumber,
+    code: otp.code,
+    expiresInSec: otp.expiresInSec,
+    logger: input.logger,
+  });
+
+  await recordAudit({
+    userId: user.id,
+    action: 'password.reset.requested',
+    ip: input.ip,
+    userAgent: input.userAgent,
+    meta: { channel: 'sms', delivered: true },
+    succeeded: true,
+  });
+}
+
+export async function resetPasswordWithPhoneOtp(
+  input: ResetPasswordWithPhoneOtpInput,
+): Promise<void> {
+  const phoneNumber = normalizePhoneNumber(input.phoneNumber);
+  const strength = validatePasswordStrength(input.newPassword);
+  if (!strength.valid) {
+    await recordAudit({
+      action: 'password.reset.failed',
+      ip: input.ip,
+      userAgent: input.userAgent,
+      meta: { channel: 'sms', reason: 'weak_password', issues: strength.issues },
+      succeeded: false,
+    });
+    throw new WeakPasswordResetPasswordError(strength.issues);
+  }
+
+  const ok = await verifyOtp('sms', phoneNumber, input.code);
+  if (!ok) {
+    await recordAudit({
+      action: 'password.reset.failed',
+      ip: input.ip,
+      userAgent: input.userAgent,
+      meta: { channel: 'sms', reason: 'invalid_otp' },
+      succeeded: false,
+    });
+    throw new InvalidPhonePasswordResetOtpError();
+  }
+
+  const user = await findUserByPhone(phoneNumber);
+  if (!user || !user.is_active) {
+    await recordAudit({
+      userId: user?.id,
+      action: 'password.reset.failed',
+      ip: input.ip,
+      userAgent: input.userAgent,
+      meta: { channel: 'sms', reason: 'user_not_found_or_inactive' },
+      succeeded: false,
+    });
+    throw new InvalidPhonePasswordResetOtpError();
+  }
+  if (user.password_hash && await verifyPassword(input.newPassword, user.password_hash)) {
+    await recordAudit({
+      userId: user.id,
+      action: 'password.reset.failed',
+      ip: input.ip,
+      userAgent: input.userAgent,
+      meta: { channel: 'sms', reason: 'same_password' },
+      succeeded: false,
+    });
+    throw new SamePasswordResetPasswordError();
+  }
+
+  const passwordHash = await hashPassword(input.newPassword);
+  const updated = await updateUserPassword(user.id, passwordHash);
+  if (!updated) {
+    throw new InvalidPhonePasswordResetOtpError();
+  }
+
+  await endAllSessions(user.id, 'password_reset');
+
+  await recordAudit({
+    userId: user.id,
+    action: 'password.reset.completed',
+    ip: input.ip,
+    userAgent: input.userAgent,
+    meta: { channel: 'sms' },
+    succeeded: true,
+  });
+}
+
 // TODO(password-reset-email-templates): add branded HTML and plain-text mail.
 // TODO(password-reset-email-queue): enqueue provider sends with retry/backoff.
 // TODO(SES): plug SesEmailProvider in without changing this service.
+// TODO(password-reset-rate-limit): add Redis throttles for phone reset attempts.
