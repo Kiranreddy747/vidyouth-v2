@@ -11,17 +11,19 @@ import { env } from '../config/env.js';
 import {
   consumeResetToken,
   createResetToken,
+  findValidResetToken,
   revokeUserResetTokens,
 } from '../repositories/password-reset.js';
 import {
   findActiveUserByEmail,
+  findUserById,
   findUserByPhone,
   updateUserPassword,
 } from '../repositories/users.js';
 import { recordAudit } from '../services/audit.js';
 import { getEmailProvider } from '../services/email/index.js';
 import { issueOtp, verifyOtp } from '../services/otp.js';
-import { hashPassword, validatePasswordStrength } from '../services/passwords.js';
+import { hashPassword, validatePasswordStrength, verifyPassword } from '../services/passwords.js';
 import { normalizePhoneNumber } from '../services/phone-auth.js';
 import { endAllSessions } from '../services/sessions.js';
 import { getSmsProvider } from '../services/sms/index.js';
@@ -69,6 +71,13 @@ export class WeakPasswordResetPasswordError extends Error {
     super('weak_password');
     this.name = 'WeakPasswordResetPasswordError';
     this.issues = issues;
+  }
+}
+
+export class SamePasswordResetPasswordError extends Error {
+  constructor() {
+    super('same_password');
+    this.name = 'SamePasswordResetPasswordError';
   }
 }
 
@@ -160,8 +169,45 @@ export async function resetPassword(input: ResetPasswordInput): Promise<void> {
   }
 
   const tokenHash = hashResetToken(input.token);
-  const consumed = await consumeResetToken(tokenHash);
+  const validToken = await findValidResetToken(tokenHash);
 
+  if (!validToken) {
+    await recordAudit({
+      action: 'password.reset.failed',
+      ip: input.ip,
+      userAgent: input.userAgent,
+      meta: { reason: 'invalid_or_expired' },
+      succeeded: false,
+    });
+    throw new InvalidPasswordResetTokenError();
+  }
+
+  const userForComparison = await findUserById(validToken.user_id);
+  if (!userForComparison || !userForComparison.is_active) {
+    await recordAudit({
+      userId: validToken.user_id,
+      action: 'password.reset.failed',
+      ip: input.ip,
+      userAgent: input.userAgent,
+      meta: { reason: 'user_not_found' },
+      succeeded: false,
+    });
+    throw new InvalidPasswordResetTokenError();
+  }
+  if (userForComparison.password_hash
+      && await verifyPassword(input.newPassword, userForComparison.password_hash)) {
+    await recordAudit({
+      userId: userForComparison.id,
+      action: 'password.reset.failed',
+      ip: input.ip,
+      userAgent: input.userAgent,
+      meta: { reason: 'same_password' },
+      succeeded: false,
+    });
+    throw new SamePasswordResetPasswordError();
+  }
+
+  const consumed = await consumeResetToken(tokenHash);
   if (!consumed) {
     await recordAudit({
       action: 'password.reset.failed',
@@ -282,6 +328,17 @@ export async function resetPasswordWithPhoneOtp(
       succeeded: false,
     });
     throw new InvalidPhonePasswordResetOtpError();
+  }
+  if (user.password_hash && await verifyPassword(input.newPassword, user.password_hash)) {
+    await recordAudit({
+      userId: user.id,
+      action: 'password.reset.failed',
+      ip: input.ip,
+      userAgent: input.userAgent,
+      meta: { channel: 'sms', reason: 'same_password' },
+      succeeded: false,
+    });
+    throw new SamePasswordResetPasswordError();
   }
 
   const passwordHash = await hashPassword(input.newPassword);

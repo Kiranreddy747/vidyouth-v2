@@ -23,6 +23,7 @@ import { getSmsProvider } from '../services/sms/index.js';
 
 export interface RequestPhoneOtpInput {
   phoneNumber: string;
+  requireExistingAccount?: boolean | undefined;
   ip?: string | undefined;
   userAgent?: string | undefined;
   logger: FastifyBaseLogger;
@@ -61,6 +62,13 @@ export class PhoneSignupUnavailableError extends Error {
   }
 }
 
+export class PhoneAccountNotFoundError extends Error {
+  constructor() {
+    super('account_not_found');
+    this.name = 'PhoneAccountNotFoundError';
+  }
+}
+
 export class WeakPhoneSignupPasswordError extends Error {
   issues: string[];
 
@@ -88,6 +96,21 @@ function isUniqueViolation(err: unknown): boolean {
 
 export async function requestPhoneOtp(input: RequestPhoneOtpInput): Promise<void> {
   const phoneNumber = normalizePhoneNumber(input.phoneNumber);
+
+  if (input.requireExistingAccount) {
+    const user = await findUserByPhone(phoneNumber);
+    if (!user || !user.is_active) {
+      await recordAudit({
+        userId: user?.id,
+        action: 'phone.otp.requested',
+        ip: input.ip,
+        userAgent: input.userAgent,
+        meta: { phone_number: phoneNumber, delivered: false, reason: 'account_not_found' },
+        succeeded: false,
+      });
+      throw new PhoneAccountNotFoundError();
+    }
+  }
 
   // TODO(phone-rate-limit): add per-phone, per-IP, and device fingerprint limits.
   // TODO(phone-fraud-detection): block premium-rate and suspicious destinations.
@@ -125,18 +148,7 @@ export async function verifyPhoneOtp(
     throw new InvalidPhoneOtpError();
   }
 
-  let user = await findUserByPhone(phoneNumber);
-  let created = false;
-
-  if (!user) {
-    try {
-      user = await createPhoneUser({ phoneNumber });
-      created = true;
-    } catch (err) {
-      if (!isUniqueViolation(err)) throw err;
-      user = await findUserByPhone(phoneNumber);
-    }
-  }
+  const user = await findUserByPhone(phoneNumber);
 
   if (!user || !user.is_active) {
     await recordAudit({
@@ -147,7 +159,7 @@ export async function verifyPhoneOtp(
       meta: { phone_number: phoneNumber, reason: 'inactive_or_missing_user' },
       succeeded: false,
     });
-    throw new InvalidPhoneOtpError();
+    throw new PhoneAccountNotFoundError();
   }
 
   const verifiedUser = await markPhoneVerified(user.id, phoneNumber);
@@ -160,7 +172,7 @@ export async function verifyPhoneOtp(
     action: 'phone.otp.verified',
     ip: input.ip,
     userAgent: input.userAgent,
-    meta: { phone_number: phoneNumber, created },
+    meta: { phone_number: phoneNumber },
     succeeded: true,
   });
 
@@ -169,7 +181,7 @@ export async function verifyPhoneOtp(
   // TODO(MFA): reuse this flow as a second factor for password accounts.
   return createAuthenticatedSession({
     user: verifiedUser,
-    auditAction: created ? 'account.created' : 'login.success',
+    auditAction: 'login.success',
     ip: input.ip,
     userAgent: input.userAgent,
   });

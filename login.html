@@ -683,7 +683,7 @@
           <select id="countryCode" class="auth-input shrink-0" style="width:132px;" aria-label="Country code">
             <!-- Populated by buildCountryCodes() — full international list -->
           </select>
-          <input id="phone" name="phone" type="tel" autocomplete="tel" class="auth-input" placeholder="98765 43210"/>
+          <input id="phone" name="phone" type="tel" autocomplete="tel" class="auth-input" placeholder="7911 123456"/>
         </div>
       </div>
 
@@ -783,7 +783,7 @@
     <form id="forgotPhoneForm" class="space-y-4" novalidate hidden>
       <div>
         <label class="auth-label" for="forgotPhone">Mobile number</label>
-        <input id="forgotPhone" type="tel" autocomplete="tel" required class="auth-input" placeholder="+919876543210"/>
+        <input id="forgotPhone" type="tel" autocomplete="tel" required class="auth-input" placeholder="+447911123456"/>
       </div>
       <button type="button" class="auth-btn-primary" id="forgotPhoneOtpSubmit">Send OTP</button>
       <div id="forgotPhoneOtpBlock" hidden>
@@ -839,7 +839,7 @@
       </div>
       <div>
         <label class="auth-label" for="signupPhone">Mobile number</label>
-        <input id="signupPhone" type="tel" autocomplete="tel" required class="auth-input" placeholder="+919876543210"/>
+        <input id="signupPhone" type="tel" autocomplete="tel" required class="auth-input" placeholder="+447911123456"/>
       </div>
       <div>
         <label class="auth-label" for="signupPhonePassword">Password</label>
@@ -1058,8 +1058,15 @@
     const raw = value.trim();
     if (mode !== 'mobile') return raw.toLowerCase();
     const compact = raw.replace(/[()\-\s]/g, '');
-    if (/^\d{10}$/.test(compact)) return `+91${compact}`;
     return compact;
+  }
+
+  function isValidInternationalMobile(phoneNumber) {
+    return /^\+[1-9]\d{7,14}$/.test(phoneNumber);
+  }
+
+  function invalidInternationalMobileMessage() {
+    return 'Invalid phone number. Enter country code format, like +447911123456 or +919876543210.';
   }
 
   async function loginWithPassword(identifier, password) {
@@ -1175,6 +1182,10 @@
       showForgotPhoneMessage('error', 'Enter your mobile number.');
       return;
     }
+    if (!isValidInternationalMobile(phone_number)) {
+      showForgotPhoneMessage('error', invalidInternationalMobileMessage());
+      return;
+    }
 
     forgotPhoneOtpSubmit.disabled = true;
     forgotPhoneOtpSubmit.textContent = 'Sending...';
@@ -1187,7 +1198,15 @@
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        showForgotPhoneMessage('error', data.error === 'invalid_phone_number' ? 'Use format like +919876543210.' : 'Could not send OTP.');
+        if (data.error === 'rate_limited') {
+          showForgotPhoneMessage('error', 'Too many OTP requests. Please wait a few minutes and try again.');
+          return;
+        }
+        if (data.error === 'invalid_phone_number' || data.error === 'invalid_request') {
+          showForgotPhoneMessage('error', invalidInternationalMobileMessage());
+          return;
+        }
+        showForgotPhoneMessage('error', 'OTP service is unavailable right now. Please try again later.');
         return;
       }
 
@@ -1211,6 +1230,10 @@
       showForgotPhoneMessage('error', 'Enter mobile number, OTP, and new password.');
       return;
     }
+    if (!isValidInternationalMobile(phone_number)) {
+      showForgotPhoneMessage('error', invalidInternationalMobileMessage());
+      return;
+    }
 
     forgotPhoneResetSubmit.disabled = true;
     forgotPhoneResetSubmit.textContent = 'Resetting...';
@@ -1223,8 +1246,31 @@
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
+        if (data.error === 'invalid_request') {
+          const issuePaths = Array.isArray(data.issues)
+            ? data.issues.map((issue) => Array.isArray(issue.path) ? issue.path.join('.') : '').join(' ')
+            : '';
+          if (issuePaths.includes('new_password')) {
+            showForgotPhoneMessage('error', 'Use a new password with at least 12 characters.');
+            return;
+          }
+          if (issuePaths.includes('code')) {
+            showForgotPhoneMessage('error', 'Enter the OTP as 4 to 8 digits.');
+            return;
+          }
+          showForgotPhoneMessage('error', 'Check mobile number, OTP, and new password.');
+          return;
+        }
+        if (data.error === 'invalid_phone_number') {
+          showForgotPhoneMessage('error', invalidInternationalMobileMessage());
+          return;
+        }
         if (data.error === 'weak_password') {
           showForgotPhoneMessage('error', 'Use 12+ chars with uppercase, lowercase, number, and symbol.');
+          return;
+        }
+        if (data.error === 'same_password') {
+          showForgotPhoneMessage('error', 'Choose a different password from your current one.');
           return;
         }
         if (data.error === 'invalid_or_expired_otp') {
@@ -1363,10 +1409,14 @@
 
   requestSignupOtp.addEventListener('click', async () => {
     const displayNameValue = document.getElementById('signupPhoneName').value.trim();
-    const phone_number = document.getElementById('signupPhone').value.trim();
+    const phone_number = normalizeLoginIdentifier(document.getElementById('signupPhone').value, 'mobile');
     const password = document.getElementById('signupPhonePassword').value;
     if (!displayNameValue || !phone_number || !password) {
       showSignupMessage(mobileSignupMessage, 'error', 'Fill name, mobile number, and password first.');
+      return;
+    }
+    if (!isValidInternationalMobile(phone_number)) {
+      showSignupMessage(mobileSignupMessage, 'error', invalidInternationalMobileMessage());
       return;
     }
     if (password.length < 12) {
@@ -1385,7 +1435,15 @@
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        showSignupMessage(mobileSignupMessage, 'error', data.error === 'invalid_phone_number' ? 'Use format like +919876543210.' : 'Could not send OTP.');
+        if (data.error === 'rate_limited') {
+          showSignupMessage(mobileSignupMessage, 'error', 'Too many OTP requests. Please wait a few minutes and try again.');
+          return;
+        }
+        if (data.error === 'invalid_phone_number' || data.error === 'invalid_request') {
+          showSignupMessage(mobileSignupMessage, 'error', invalidInternationalMobileMessage());
+          return;
+        }
+        showSignupMessage(mobileSignupMessage, 'error', 'OTP service is unavailable right now. Please try again later.');
         return;
       }
 
@@ -1403,11 +1461,15 @@
   mobileSignupForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const display_name = document.getElementById('signupPhoneName').value.trim();
-    const phone_number = document.getElementById('signupPhone').value.trim();
+    const phone_number = normalizeLoginIdentifier(document.getElementById('signupPhone').value, 'mobile');
     const password = document.getElementById('signupPhonePassword').value;
     const code = document.getElementById('signupOtp').value.trim();
     if (!display_name || !phone_number || !password || !code) {
       showSignupMessage(mobileSignupMessage, 'error', 'Enter name, mobile number, password, and OTP.');
+      return;
+    }
+    if (!isValidInternationalMobile(phone_number)) {
+      showSignupMessage(mobileSignupMessage, 'error', invalidInternationalMobileMessage());
       return;
     }
 
@@ -1497,12 +1559,17 @@
 
   /* ── "Sign in with an email code" → OTP verification page ── */
   const emailCodeLink = document.getElementById('emailCodeLink');
+
+  function isValidEmail(value) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+  }
+
   if (emailCodeLink) {
     emailCodeLink.addEventListener('click', (e) => {
       e.preventDefault();
-      const email = (document.getElementById('email')?.value || '').trim();
-      if (!email) {
-        setAuthMessage('Enter your email above first, then tap the code link.', true);
+      const email = (document.getElementById('email')?.value || '').trim().toLowerCase();
+      if (!email || !isValidEmail(email)) {
+        setAuthMessage('Enter a valid email address first, like you@example.com.', true);
         document.getElementById('email')?.focus();
         return;
       }

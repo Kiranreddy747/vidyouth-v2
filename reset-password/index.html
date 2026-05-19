@@ -156,6 +156,10 @@
             setStatus('error', 'Use a stronger password and try again.');
             return;
           }
+          if (payload.error === 'same_password') {
+            setStatus('error', 'Choose a different password from your current one.');
+            return;
+          }
           if (payload.error === 'invalid_or_expired_token') {
             setStatus('error', 'This reset link is invalid or expired. Please request a new one.');
             return;

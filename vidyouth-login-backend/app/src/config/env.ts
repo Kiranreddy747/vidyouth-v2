@@ -7,6 +7,16 @@
 import 'dotenv/config';
 import { z } from 'zod';
 
+const optionalEnv = z.preprocess(
+  (value) => value === '' ? undefined : value,
+  z.string().optional(),
+);
+
+const optionalUrlEnv = z.preprocess(
+  (value) => value === '' ? undefined : value,
+  z.string().url().optional(),
+);
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'staging', 'production', 'test']).default('development'),
   PORT: z.coerce.number().int().positive().default(8080),
@@ -22,8 +32,8 @@ const envSchema = z.object({
   REDIS_KEY_PREFIX: z.string().default('vidyouth:dev:'),
 
   // JWT
-  JWT_PRIVATE_KEY: z.string().optional(),
-  JWT_PUBLIC_KEY: z.string().optional(),
+  JWT_PRIVATE_KEY: optionalEnv,
+  JWT_PUBLIC_KEY: optionalEnv,
   JWT_ISSUER: z.string().default('vidyouth.auth'),
   JWT_AUDIENCE: z.string().default('vidyouth.lms'),
   JWT_ACCESS_TTL_SECONDS: z.coerce.number().int().positive().default(900),
@@ -49,28 +59,28 @@ const envSchema = z.object({
 
   // SMS / email
   SMS_PROVIDER: z.enum(['mock', 'msg91', 'sns']).default('mock'),
-  SMS_API_KEY: z.string().optional(),
+  SMS_API_KEY: optionalEnv,
   // MSG91 (real SMS delivery for +91 and international numbers)
-  MSG91_AUTH_KEY: z.string().optional(),
-  MSG91_TEMPLATE_ID: z.string().optional(),
-  MSG91_SENDER_ID: z.string().optional(),
+  MSG91_AUTH_KEY: optionalEnv,
+  MSG91_TEMPLATE_ID: optionalEnv,
+  MSG91_SENDER_ID: optionalEnv,
   EMAIL_PROVIDER: z.enum(['mock', 'ses']).default('mock'),
   EMAIL_FROM: z.string().email().default('no-reply@vidyouth.local'),
 
   // Audit
-  AUDIT_S3_BUCKET: z.string().optional(),
+  AUDIT_S3_BUCKET: optionalEnv,
   AUDIT_S3_REGION: z.string().default('ap-south-1'),
   
   // Google OAuth
-  GOOGLE_CLIENT_ID: z.string().optional(),
-  GOOGLE_CLIENT_SECRET: z.string().optional(),
-  GOOGLE_REDIRECT_URI: z.string().url().optional(),
+  GOOGLE_CLIENT_ID: optionalEnv,
+  GOOGLE_CLIENT_SECRET: optionalEnv,
+  GOOGLE_REDIRECT_URI: optionalUrlEnv,
 
   // Microsoft OAuth
-  MICROSOFT_CLIENT_ID: z.string().optional(),
-  MICROSOFT_CLIENT_SECRET: z.string().optional(),
+  MICROSOFT_CLIENT_ID: optionalEnv,
+  MICROSOFT_CLIENT_SECRET: optionalEnv,
   MICROSOFT_TENANT_ID: z.string().default('common'),
-  MICROSOFT_REDIRECT_URI: z.string().url().optional(),
+  MICROSOFT_REDIRECT_URI: optionalUrlEnv,
 
   // Where the OAuth callback sends the browser after a successful login.
   // Tokens are appended in the URL fragment; the frontend reads + stores them.
@@ -83,9 +93,46 @@ const envSchema = z.object({
 
   // AWS SDK config consumed by SES + SNS providers (PR #2)
   AWS_REGION: z.string().default('ap-south-1'),
+  AWS_SMS_REGION: optionalEnv,
+  AWS_EMAIL_REGION: optionalEnv,
+  AWS_ACCESS_KEY_ID: optionalEnv,
+  AWS_SECRET_ACCESS_KEY: optionalEnv,
+  AWS_SESSION_TOKEN: optionalEnv,
   SES_FROM_EMAIL: z.string().email().default('no-reply@vidyouth.local'),
   SNS_SMS_TYPE: z.enum(['Transactional', 'Promotional']).default('Transactional'),
-  SNS_SENDER_ID: z.string().optional(),
+  SNS_SENDER_ID: optionalEnv,
+  SNS_ENTITY_ID: optionalEnv,
+  SNS_TEMPLATE_ID: optionalEnv,
+}).superRefine((value, ctx) => {
+  const needsAwsCredentials = value.EMAIL_PROVIDER === 'ses' || value.SMS_PROVIDER === 'sns';
+  if (needsAwsCredentials && !value.AWS_ACCESS_KEY_ID) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['AWS_ACCESS_KEY_ID'],
+      message: 'Required when EMAIL_PROVIDER=ses or SMS_PROVIDER=sns',
+    });
+  }
+  if (needsAwsCredentials && !value.AWS_SECRET_ACCESS_KEY) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['AWS_SECRET_ACCESS_KEY'],
+      message: 'Required when EMAIL_PROVIDER=ses or SMS_PROVIDER=sns',
+    });
+  }
+  if (value.SMS_PROVIDER === 'msg91' && !value.MSG91_AUTH_KEY) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['MSG91_AUTH_KEY'],
+      message: 'Required when SMS_PROVIDER=msg91',
+    });
+  }
+  if (value.SMS_PROVIDER === 'msg91' && !value.MSG91_TEMPLATE_ID) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['MSG91_TEMPLATE_ID'],
+      message: 'Required when SMS_PROVIDER=msg91',
+    });
+  }
 });
 
 export type Env = z.infer<typeof envSchema>;

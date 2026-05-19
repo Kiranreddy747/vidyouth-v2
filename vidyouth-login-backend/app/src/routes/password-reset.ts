@@ -13,6 +13,7 @@ import {
   InvalidPasswordResetTokenError,
   InvalidPhonePasswordResetOtpError,
   requestPhonePasswordReset,
+  SamePasswordResetPasswordError,
   WeakPasswordResetPasswordError,
   requestPasswordReset,
   resetPassword,
@@ -79,6 +80,10 @@ export async function passwordResetRoutes(app: FastifyInstance): Promise<void> {
         reply.code(400).send({ error: 'weak_password', issues: err.issues });
         return;
       }
+      if (err instanceof SamePasswordResetPasswordError) {
+        reply.code(400).send({ error: 'same_password' });
+        return;
+      }
       if (err instanceof InvalidPasswordResetTokenError) {
         reply.code(400).send({ error: 'invalid_or_expired_token' });
         return;
@@ -119,6 +124,10 @@ export async function passwordResetRoutes(app: FastifyInstance): Promise<void> {
     } catch (err) {
       if (err instanceof WeakPasswordResetPasswordError) {
         reply.code(400).send({ error: 'weak_password', issues: err.issues });
+        return;
+      }
+      if (err instanceof SamePasswordResetPasswordError) {
+        reply.code(400).send({ error: 'same_password' });
         return;
       }
       if (err instanceof InvalidPasswordResetTokenError) {
@@ -181,6 +190,10 @@ export async function passwordResetRoutes(app: FastifyInstance): Promise<void> {
       }
       if (err instanceof WeakPasswordResetPasswordError) {
         reply.code(400).send({ error: 'weak_password', issues: err.issues });
+        return;
+      }
+      if (err instanceof SamePasswordResetPasswordError) {
+        reply.code(400).send({ error: 'same_password' });
         return;
       }
       if (err instanceof InvalidPhonePasswordResetOtpError) {

@@ -12,6 +12,7 @@ import { z } from 'zod';
 import {
   InvalidPhoneNumberError,
   InvalidPhoneOtpError,
+  PhoneAccountNotFoundError,
   PhoneSignupUnavailableError,
   requestPhoneOtp,
   signupWithPhoneOtp,
@@ -36,7 +37,11 @@ const signupVerifyBody = z.object({
 });
 
 export async function phoneAuthRoutes(app: FastifyInstance): Promise<void> {
-  async function handleOtpStart(req: FastifyRequest, reply: FastifyReply) {
+  async function handleOtpStart(
+    req: FastifyRequest,
+    reply: FastifyReply,
+    requireExistingAccount: boolean,
+  ) {
     const parsed = startBody.safeParse(req.body);
     if (!parsed.success) {
       reply.code(400).send({ error: 'invalid_request' });
@@ -45,6 +50,7 @@ export async function phoneAuthRoutes(app: FastifyInstance): Promise<void> {
     try {
       await requestPhoneOtp({
         phoneNumber: parsed.data.phone_number,
+        requireExistingAccount,
         ip: req.ip,
         userAgent: req.headers['user-agent'],
         logger: req.log,
@@ -53,6 +59,10 @@ export async function phoneAuthRoutes(app: FastifyInstance): Promise<void> {
     } catch (err) {
       if (err instanceof InvalidPhoneNumberError) {
         reply.code(400).send({ error: 'invalid_phone_number' });
+        return;
+      }
+      if (err instanceof PhoneAccountNotFoundError) {
+        reply.code(404).send({ error: 'account_not_found' });
         return;
       }
       const e = err as { statusCode?: number };
@@ -64,10 +74,12 @@ export async function phoneAuthRoutes(app: FastifyInstance): Promise<void> {
     }
   }
 
-  app.post('/auth/phone/start', handleOtpStart);
+  app.post('/auth/phone/start', async (req, reply) => {
+    await handleOtpStart(req, reply, true);
+  });
 
   app.post('/auth/phone/request-otp', async (req, reply) => {
-    await handleOtpStart(req, reply);
+    await handleOtpStart(req, reply, false);
   });
 
   app.post('/auth/phone/verify', async (req, reply) => {
@@ -96,6 +108,10 @@ export async function phoneAuthRoutes(app: FastifyInstance): Promise<void> {
       }
       if (err instanceof InvalidPhoneOtpError) {
         reply.code(401).send({ error: 'invalid_phone_otp' });
+        return;
+      }
+      if (err instanceof PhoneAccountNotFoundError) {
+        reply.code(404).send({ error: 'account_not_found' });
         return;
       }
       throw err;
@@ -128,6 +144,10 @@ export async function phoneAuthRoutes(app: FastifyInstance): Promise<void> {
       }
       if (err instanceof InvalidPhoneOtpError) {
         reply.code(401).send({ error: 'invalid_otp' });
+        return;
+      }
+      if (err instanceof PhoneAccountNotFoundError) {
+        reply.code(404).send({ error: 'account_not_found' });
         return;
       }
       throw err;

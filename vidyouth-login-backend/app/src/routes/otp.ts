@@ -13,16 +13,34 @@ import { recordAudit } from '../services/audit.js';
 import { query } from '../db/pg.js';
 import { signAccess, signRefresh } from '../services/jwt.js';
 import { startSession } from '../services/sessions.js';
+import { getEmailProvider } from '../services/email/index.js';
+import { getSmsProvider } from '../services/sms/index.js';
 
 const requestBody = z.object({
   channel: z.enum(['sms', 'email']),
   identifier: z.string().min(3).max(254),
+}).superRefine((value, ctx) => {
+  if (value.channel === 'email' && !z.string().email().safeParse(value.identifier).success) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['identifier'],
+      message: 'invalid_email',
+    });
+  }
 });
 
 const verifyBody = z.object({
   channel: z.enum(['sms', 'email']),
   identifier: z.string().min(3).max(254),
   code: z.string().regex(/^\d{4,8}$/),
+}).superRefine((value, ctx) => {
+  if (value.channel === 'email' && !z.string().email().safeParse(value.identifier).success) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['identifier'],
+      message: 'invalid_email',
+    });
+  }
 });
 
 interface UserRow {
@@ -41,12 +59,43 @@ export async function otpRoutes(app: FastifyInstance): Promise<void> {
     }
     const { channel, identifier } = parsed.data;
     try {
+      if (channel === 'email') {
+        const existing = await query<{ id: string; is_active: boolean }>(
+          `SELECT id, is_active FROM users
+           WHERE lower(email) = lower($1) AND deleted_at IS NULL
+           LIMIT 1`,
+          [identifier],
+        );
+        const user = existing.rows[0];
+        if (!user || !user.is_active) {
+          await recordAudit({
+            action: 'otp.requested',
+            ip: req.ip,
+            userAgent: req.headers['user-agent'],
+            meta: { channel, identifier, delivered: false, reason: 'account_not_found' },
+            succeeded: false,
+          });
+          reply.code(404).send({ error: 'account_not_found' });
+          return;
+        }
+      }
+
       const { code, expiresInSec } = await issueOtp(channel, identifier);
 
-      // TODO: dispatch to MSG91 (sms) or SES (email). For now, dev-only —
-      // do NOT log the code in production.
-      if (process.env.NODE_ENV !== 'production') {
-        req.log.info({ channel, identifier, code }, '[DEV] OTP issued');
+      if (channel === 'email') {
+        await getEmailProvider().sendOtpEmail({
+          to: identifier,
+          code,
+          expiresInSec,
+          logger: req.log,
+        });
+      } else {
+        await getSmsProvider().sendOtp({
+          to: identifier,
+          code,
+          expiresInSec,
+          logger: req.log,
+        });
       }
 
       await recordAudit({

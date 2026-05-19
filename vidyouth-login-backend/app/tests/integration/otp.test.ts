@@ -19,6 +19,15 @@ describe('email OTP login', () => {
     assert.equal(r.json<{ status: string }>().status, 'sent');
   });
 
+  test('request for unknown email rejects with account_not_found', async () => {
+    const r = await post('/auth/otp/request', {
+      channel: 'email',
+      identifier: uniqueEmail('otpnew'),
+    });
+    assert.equal(r.status, 404);
+    assert.equal(r.json<{ error: string }>().error, 'account_not_found');
+  });
+
   test('correct code logs the existing user in', async () => {
     const email = uniqueEmail('otpok');
     await post('/auth/signup', {
