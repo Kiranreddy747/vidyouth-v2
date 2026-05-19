@@ -40,7 +40,9 @@ after(async () => {
 let counter = 0;
 export function uniqueEmail(tag = 't'): string {
   counter += 1;
-  return `admintest+${tag}.${Date.now()}.${counter}@vidyouth.test`;
+  // randomUUID segment makes this unique even across the parallel test
+  // processes node:test spawns per file (Date.now()+counter alone collide).
+  return `admintest+${tag}.${Date.now()}.${counter}.${randomUUID().slice(0, 8)}@vidyouth.test`;
 }
 
 const PRIVATE_KEY = process.env.JWT_PRIVATE_KEY;
@@ -101,6 +103,24 @@ export async function patch(
   const app = await getApp();
   const res = await app.inject({
     method: 'PATCH',
+    url: path,
+    payload: body,
+    headers: {
+      'content-type': 'application/json',
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  return { status: res.statusCode, body: res.body, json: <T>() => JSON.parse(res.body) as T };
+}
+
+export async function post(
+  path: string,
+  body: unknown,
+  token?: string,
+): Promise<InjectResult> {
+  const app = await getApp();
+  const res = await app.inject({
+    method: 'POST',
     url: path,
     payload: body,
     headers: {
