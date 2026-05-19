@@ -39,7 +39,8 @@ export type AuditAction =
   | 'batch.vendor_assigned'
   | 'job.created'
   | 'job.updated'
-  | 'job.reco_config_changed';
+  | 'job.reco_config_changed'
+  | 'notification.template.changed';
 
 export interface AuditEvent {
   userId?: string | undefined;
