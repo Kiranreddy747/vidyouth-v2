@@ -24,7 +24,10 @@ export type AuditAction =
   | 'user.impersonate_attempt'
   | 'content.created'
   | 'content.updated'
-  | 'pricing.changed';
+  | 'pricing.changed'
+  | 'payment.refunded'
+  | 'wallet.adjusted'
+  | 'payment.config.changed';
 
 export interface AuditEvent {
   userId?: string | undefined;
