@@ -23,7 +23,8 @@ export type AuditAction =
   | 'user.password_reset_issued'
   | 'user.impersonate_attempt'
   | 'content.created'
-  | 'content.updated';
+  | 'content.updated'
+  | 'pricing.changed';
 
 export interface AuditEvent {
   userId?: string | undefined;
