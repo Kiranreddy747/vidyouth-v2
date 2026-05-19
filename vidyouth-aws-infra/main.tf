@@ -72,17 +72,32 @@ module "data" {
 module "application" {
   source = "./modules/application"
 
-  name_prefix                = var.name_prefix
-  cost_mode                  = var.cost_mode
-  vpc_id                     = module.networking.vpc_id
-  public_subnet_ids          = module.networking.public_subnet_ids
-  private_app_subnet_ids     = module.networking.private_app_subnet_ids
-  alb_security_group_id      = module.networking.alb_security_group_id
-  ec2_security_group_id      = module.networking.ec2_security_group_id
-  ec2_instance_profile_name  = module.foundations.ec2_instance_profile_name
-  data_kms_arn               = module.foundations.data_kms_arn
-  image_tag                  = var.auth_service_image_tag
-  tags                       = local.common_tags
+  name_prefix               = var.name_prefix
+  cost_mode                 = var.cost_mode
+  vpc_id                    = module.networking.vpc_id
+  public_subnet_ids         = module.networking.public_subnet_ids
+  private_app_subnet_ids    = module.networking.private_app_subnet_ids
+  alb_security_group_id     = module.networking.alb_security_group_id
+  ec2_security_group_id     = module.networking.ec2_security_group_id
+  ec2_instance_profile_name = module.foundations.ec2_instance_profile_name
+  data_kms_arn              = module.foundations.data_kms_arn
+  image_tag                 = var.auth_service_image_tag
+
+  # Data tier + secrets so the launch template can build a real runtime config
+  aws_region             = local.region
+  rds_address            = module.data.rds_address
+  rds_port               = module.data.rds_port
+  rds_db_name            = module.data.rds_db_name
+  redis_primary_endpoint = module.data.redis_primary_endpoint
+  redis_port             = module.data.redis_port
+
+  db_master_secret_arn       = module.secrets.db_master_password_arn
+  redis_auth_secret_arn      = module.secrets.redis_auth_token_arn
+  jwt_private_key_secret_arn = module.secrets.jwt_private_key_arn
+  jwt_public_key_secret_arn  = module.secrets.jwt_public_key_arn
+  bcrypt_pepper_secret_arn   = module.secrets.bcrypt_pepper_arn
+
+  tags = local.common_tags
 }
 
 # ─── Phase 8 — Observability ─────────────────────────────────────────────────
