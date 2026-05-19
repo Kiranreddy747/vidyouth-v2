@@ -36,7 +36,10 @@ export type AuditAction =
   | 'vendor.updated'
   | 'batch.created'
   | 'batch.updated'
-  | 'batch.vendor_assigned';
+  | 'batch.vendor_assigned'
+  | 'job.created'
+  | 'job.updated'
+  | 'job.reco_config_changed';
 
 export interface AuditEvent {
   userId?: string | undefined;
