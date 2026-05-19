@@ -19,6 +19,7 @@ import { healthRoutes } from './routes/health.js';
 import { adminRoutes } from './routes/admin.js';
 import { organisationRoutes } from './routes/organisations.js';
 import { userRoutes } from './routes/users.js';
+import { contentRoutes } from './routes/content.js';
 import { authRequired } from './middleware/auth.js';
 
 declare module 'fastify' {
@@ -66,6 +67,7 @@ export async function buildApp(opts: BuildAppOptions = {}) {
   await app.register(adminRoutes);
   await app.register(organisationRoutes);
   await app.register(userRoutes);
+  await app.register(contentRoutes);
 
   app.setErrorHandler((err, req, reply) => {
     req.log.error({ err }, 'unhandled error');

@@ -21,7 +21,9 @@ export type AuditAction =
   | 'user.force_logout'
   | 'user.unlocked'
   | 'user.password_reset_issued'
-  | 'user.impersonate_attempt';
+  | 'user.impersonate_attempt'
+  | 'content.created'
+  | 'content.updated';
 
 export interface AuditEvent {
   userId?: string | undefined;
