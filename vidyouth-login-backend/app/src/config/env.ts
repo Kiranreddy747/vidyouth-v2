@@ -4,8 +4,42 @@
  * malformed — better than discovering it from a stack trace at request time.
  */
 
-import 'dotenv/config';
+import { existsSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { config as loadDotEnv } from 'dotenv';
 import { z } from 'zod';
+
+const configDir = dirname(fileURLToPath(import.meta.url));
+const envPaths = [
+  // app/.env when running from src/config or dist/config
+  resolve(configDir, '../../.env'),
+  // vidyouth-login-backend/.env, used by Docker Compose and local scripts
+  resolve(configDir, '../../../.env'),
+  // Fallbacks for ad-hoc commands started from either folder.
+  resolve(process.cwd(), '.env'),
+  resolve(process.cwd(), '../.env'),
+];
+
+for (const path of [...new Set(envPaths)]) {
+  if (existsSync(path)) {
+    loadDotEnv({ path });
+  }
+}
+
+if (!process.env.DATABASE_URL && process.env.POSTGRES_DB && process.env.POSTGRES_USER) {
+  const host = process.env.POSTGRES_HOST || '127.0.0.1';
+  const port = process.env.POSTGRES_PORT || '5432';
+  const password = process.env.POSTGRES_PASSWORD || '';
+  process.env.DATABASE_URL =
+    `postgres://${encodeURIComponent(process.env.POSTGRES_USER)}` +
+    `:${encodeURIComponent(password)}@${host}:${port}/${process.env.POSTGRES_DB}`;
+}
+
+if (!process.env.REDIS_URL && process.env.REDIS_PORT) {
+  const host = process.env.REDIS_HOST || '127.0.0.1';
+  process.env.REDIS_URL = `redis://${host}:${process.env.REDIS_PORT}`;
+}
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'staging', 'production', 'test']).default('development'),
@@ -85,9 +119,16 @@ const envSchema = z.object({
 
   // AWS SDK config consumed by SES + SNS providers (PR #2)
   AWS_REGION: z.string().default('ap-south-1'),
+  AWS_EMAIL_REGION: z.string().optional(),
+  AWS_SMS_REGION: z.string().optional(),
+  AWS_ACCESS_KEY_ID: z.string().optional(),
+  AWS_SECRET_ACCESS_KEY: z.string().optional(),
+  AWS_SESSION_TOKEN: z.string().optional(),
   SES_FROM_EMAIL: z.string().email().default('no-reply@vidyouth.local'),
   SNS_SMS_TYPE: z.enum(['Transactional', 'Promotional']).default('Transactional'),
   SNS_SENDER_ID: z.string().optional(),
+  SNS_ENTITY_ID: z.string().optional(),
+  SNS_TEMPLATE_ID: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

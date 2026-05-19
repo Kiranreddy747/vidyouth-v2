@@ -13,9 +13,31 @@ $pgBin     = Join-Path $root "pgsql\bin"
 $pgData    = Join-Path $root "pgdata"
 $pgLog     = Join-Path $root "postgres.log"
 $redisExe  = Join-Path $root "redis\redis-server.exe"
-$backend   = "c:\data collection\vidyouth-login-backend"
+$backend   = Split-Path -Parent $PSScriptRoot
 $app       = Join-Path $backend "app"
 $secretsDir = Join-Path $backend "secrets"
+
+function Read-DotEnvValue($path, $name) {
+  if (-not (Test-Path $path)) { return $null }
+  $line = Get-Content $path | Where-Object {
+    $_ -match "^\s*$([regex]::Escape($name))\s*="
+  } | Select-Object -First 1
+  if (-not $line) { return $null }
+  $value = ($line -split "=", 2)[1].Trim()
+  if ($value.Length -ge 2 -and (
+      ($value.StartsWith('"') -and $value.EndsWith('"')) -or
+      ($value.StartsWith("'") -and $value.EndsWith("'"))
+    )) {
+    $value = $value.Substring(1, $value.Length - 2)
+  }
+  return $value
+}
+
+function Format-DotEnvLine($name, $value) {
+  if ([string]::IsNullOrWhiteSpace($value)) { return "" }
+  $escaped = $value.Replace("\", "\\").Replace('"', '\"').Replace("`r", "\r").Replace("`n", "\n")
+  return "$name=""$escaped"""
+}
 
 # 1. Sanity check that the portable binaries are extracted.
 if (-not (Test-Path "$pgBin\pg_ctl.exe")) { throw "Postgres binaries missing at $pgBin. Run scripts\install-portable-runtime.ps1 first." }
@@ -47,6 +69,16 @@ if (-not (Test-Path "$secretsDir\jwt-private.pem") -or -not (Test-Path "$secrets
 # 5. .env (multiline PEM works with dotenv >=15).
 $priv = (Get-Content "$secretsDir\jwt-private.pem" -Raw).TrimEnd("`r","`n")
 $pub  = (Get-Content "$secretsDir\jwt-public.pem"  -Raw).TrimEnd("`r","`n")
+$rootEnv = Join-Path $backend ".env"
+$oauthEnvContent = @(
+  Format-DotEnvLine "GOOGLE_CLIENT_ID" (Read-DotEnvValue $rootEnv "GOOGLE_CLIENT_ID")
+  Format-DotEnvLine "GOOGLE_CLIENT_SECRET" (Read-DotEnvValue $rootEnv "GOOGLE_CLIENT_SECRET")
+  Format-DotEnvLine "GOOGLE_REDIRECT_URI" (Read-DotEnvValue $rootEnv "GOOGLE_REDIRECT_URI")
+  Format-DotEnvLine "MICROSOFT_CLIENT_ID" (Read-DotEnvValue $rootEnv "MICROSOFT_CLIENT_ID")
+  Format-DotEnvLine "MICROSOFT_CLIENT_SECRET" (Read-DotEnvValue $rootEnv "MICROSOFT_CLIENT_SECRET")
+  Format-DotEnvLine "MICROSOFT_TENANT_ID" (Read-DotEnvValue $rootEnv "MICROSOFT_TENANT_ID")
+  Format-DotEnvLine "MICROSOFT_REDIRECT_URI" (Read-DotEnvValue $rootEnv "MICROSOFT_REDIRECT_URI")
+) | Where-Object { $_ }
 $envContent = @"
 NODE_ENV=development
 PORT=8080
@@ -77,9 +109,9 @@ PASSWORD_RESET_TTL_SECONDS=3600
 AWS_REGION=ap-south-1
 SES_FROM_EMAIL=no-reply@vidyouth.local
 SNS_SMS_TYPE=Transactional
-MICROSOFT_TENANT_ID=common
 JWT_PRIVATE_KEY="$priv"
 JWT_PUBLIC_KEY="$pub"
+$($oauthEnvContent -join "`n")
 "@
 [System.IO.File]::WriteAllText("$app\.env", $envContent, (New-Object System.Text.UTF8Encoding $false))
 

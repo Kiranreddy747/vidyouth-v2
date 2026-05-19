@@ -1,9 +1,7 @@
 # Local-dev compose. Brings up Postgres + Redis + the API on one network so a
 # fresh clone can run `docker compose up` and hit http://localhost:8080/healthz.
 #
-# JWT_PRIVATE_KEY and JWT_PUBLIC_KEY are pulled from the host shell (see
-# scripts/run-local.ps1 — it loads PEMs from ./secrets and exports them
-# before invoking compose).
+# Docker Compose also reads ./env automatically for ${VARIABLE} values.
 services:
   postgres:
     image: postgres:16-alpine
@@ -42,22 +40,55 @@ services:
     environment:
       NODE_ENV: development
       PORT: 8080
-      LOG_LEVEL: debug
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
       DATABASE_URL: postgres://vidyouth:devpass@postgres:5432/vidyouth_lms
+      PG_POOL_MAX: ${PG_POOL_MAX:-10}
+      PG_POOL_IDLE_MS: ${PG_POOL_IDLE_MS:-10000}
       REDIS_URL: redis://redis:6379
-      REDIS_KEY_PREFIX: "vidyouth:dev:"
-      BCRYPT_PEPPER: dev-pepper-replace-in-prod-32chars
+      REDIS_KEY_PREFIX: ${REDIS_KEY_PREFIX:-vidyouth:dev:}
+      BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-12}
+      BCRYPT_PEPPER: ${BCRYPT_PEPPER:-dev-pepper-replace-in-prod-32chars}
       JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:-}
       JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY:-}
-      JWT_ISSUER: vidyouth.auth
-      JWT_AUDIENCE: vidyouth.lms
-      JWT_ACCESS_TTL_SECONDS: "900"
-      JWT_REFRESH_TTL_SECONDS: "2592000"
-      SMS_PROVIDER: mock
-      EMAIL_PROVIDER: mock
-      EMAIL_FROM: no-reply@vidyouth.local
-      APP_BASE_URL: http://localhost:8080
-      MICROSOFT_TENANT_ID: common
+      JWT_ISSUER: ${JWT_ISSUER:-vidyouth.auth}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-vidyouth.lms}
+      JWT_ACCESS_TTL_SECONDS: ${JWT_ACCESS_TTL_SECONDS:-900}
+      JWT_REFRESH_TTL_SECONDS: ${JWT_REFRESH_TTL_SECONDS:-2592000}
+      LOCKOUT_MAX_FAILED: ${LOCKOUT_MAX_FAILED:-5}
+      LOCKOUT_WINDOW_SECONDS: ${LOCKOUT_WINDOW_SECONDS:-1800}
+      LOCKOUT_DURATION_SECONDS: ${LOCKOUT_DURATION_SECONDS:-1800}
+      SESSION_MAX_PER_USER: ${SESSION_MAX_PER_USER:-3}
+      OTP_TTL_SECONDS: ${OTP_TTL_SECONDS:-600}
+      OTP_LENGTH: ${OTP_LENGTH:-6}
+      OTP_RATE_LIMIT_WINDOW_SECONDS: ${OTP_RATE_LIMIT_WINDOW_SECONDS:-600}
+      OTP_RATE_LIMIT_MAX: ${OTP_RATE_LIMIT_MAX:-5}
+      SMS_PROVIDER: ${SMS_PROVIDER:-mock}
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-mock}
+      EMAIL_FROM: ${EMAIL_FROM:-no-reply@vidyouth.local}
+      SES_FROM_EMAIL: ${SES_FROM_EMAIL:-no-reply@vidyouth.local}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8080}
+      EMAIL_VERIFICATION_TTL_SECONDS: ${EMAIL_VERIFICATION_TTL_SECONDS:-86400}
+      PASSWORD_RESET_TTL_SECONDS: ${PASSWORD_RESET_TTL_SECONDS:-3600}
+      AWS_REGION: ${AWS_REGION:-ap-south-1}
+      AWS_SMS_REGION: ${AWS_SMS_REGION:-ap-south-1}
+      AWS_EMAIL_REGION: ${AWS_EMAIL_REGION:-ap-south-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+      SNS_SMS_TYPE: ${SNS_SMS_TYPE:-Transactional}
+      SNS_SENDER_ID: ${SNS_SENDER_ID:-}
+      SNS_ENTITY_ID: ${SNS_ENTITY_ID:-}
+      SNS_TEMPLATE_ID: ${SNS_TEMPLATE_ID:-}
+      MSG91_AUTH_KEY: ${MSG91_AUTH_KEY:-}
+      MSG91_TEMPLATE_ID: ${MSG91_TEMPLATE_ID:-}
+      MSG91_SENDER_ID: ${MSG91_SENDER_ID:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:8080/auth/google/callback}
+      MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
+      MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
+      MICROSOFT_TENANT_ID: ${MICROSOFT_TENANT_ID:-common}
+      MICROSOFT_REDIRECT_URI: ${MICROSOFT_REDIRECT_URI:-http://localhost:8080/auth/microsoft/callback}
     depends_on:
       postgres:
         condition: service_healthy

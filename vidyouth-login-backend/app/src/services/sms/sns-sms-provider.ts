@@ -3,7 +3,9 @@ import { env } from '../../config/env.js';
 import type { SendOtpSmsInput, SmsProvider } from './sms-provider.js';
 
 export class SnsSmsProvider implements SmsProvider {
-  private readonly client = new SNSClient({ region: env.AWS_REGION });
+  private readonly client = new SNSClient({
+    region: env.AWS_SMS_REGION ?? env.AWS_REGION,
+  });
 
   async sendOtp(input: SendOtpSmsInput): Promise<void> {
     try {

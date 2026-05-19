@@ -8,7 +8,9 @@ import { SendEmailCommand, SESClient } from '@aws-sdk/client-ses';
 import { env } from '../../config/env.js';
 
 export class SesEmailProvider implements EmailProvider {
-  private readonly client = new SESClient({ region: env.AWS_REGION });
+  private readonly client = new SESClient({
+    region: env.AWS_EMAIL_REGION ?? env.AWS_REGION,
+  });
 
   private readonly fromEmail = env.SES_FROM_EMAIL ?? env.EMAIL_FROM;
 
