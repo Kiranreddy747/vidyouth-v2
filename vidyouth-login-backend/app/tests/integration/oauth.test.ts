@@ -1,6 +1,8 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { get } from '../helpers.js';
+import { get, getApp, post, uniqueEmail } from '../helpers.js';
+import { createUser } from '../../src/repositories/users.js';
+import { createOauthMfaChallenge } from '../../src/services/oauth-mfa.js';
 
 /**
  * The OAuth dance can't complete without a human at the provider consent
@@ -58,5 +60,39 @@ describe('OAuth callback failure modes', () => {
       String(r.headers['location'] ?? ''),
       /oauth_error=(oauth_exchange_failed|state_mismatch)/,
     );
+  });
+});
+
+describe('OAuth MFA resend', () => {
+  test('POST /auth/oauth/mfa/resend sends a fresh code for a valid challenge', async () => {
+    const app = await getApp();
+    const email = uniqueEmail('oauthmfa');
+    const user = await createUser({
+      role: 'student',
+      email,
+      displayName: 'OAuth MFA User',
+    });
+    const challenge = await createOauthMfaChallenge({
+      user,
+      provider: 'google',
+      providerSubject: 'google-subject',
+      email,
+      logger: app.log,
+    });
+
+    const r = await post('/auth/oauth/mfa/resend', { mfa_token: challenge.token });
+
+    assert.equal(r.status, 200);
+    assert.equal(r.json<{ status: string; email: string }>().status, 'sent');
+    assert.equal(r.json<{ status: string; email: string }>().email, email);
+  });
+
+  test('POST /auth/oauth/mfa/resend rejects an unknown challenge token', async () => {
+    const r = await post('/auth/oauth/mfa/resend', {
+      mfa_token: 'unknown-oauth-mfa-token-with-valid-length-123456',
+    });
+
+    assert.equal(r.status, 401);
+    assert.equal(r.json<{ error: string }>().error, 'invalid_or_expired_mfa_token');
   });
 });

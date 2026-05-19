@@ -14,7 +14,18 @@ export interface SendPasswordResetEmailInput {
   logger: FastifyBaseLogger;
 }
 
+export interface SendOtpEmailInput {
+  to: string;
+  code: string;
+  expiresInSec: number;
+  logger: FastifyBaseLogger;
+}
+
+export type SendMfaOtpEmailInput = SendOtpEmailInput;
+
 export interface EmailProvider {
   sendVerificationEmail(input: SendVerificationEmailInput): Promise<void>;
   sendPasswordResetEmail(input: SendPasswordResetEmailInput): Promise<void>;
+  sendOtpEmail(input: SendOtpEmailInput): Promise<void>;
+  sendMfaOtpEmail(input: SendMfaOtpEmailInput): Promise<void>;
 }

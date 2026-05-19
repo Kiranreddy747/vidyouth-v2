@@ -1,5 +1,7 @@
 import type {
   EmailProvider,
+  SendMfaOtpEmailInput,
+  SendOtpEmailInput,
   SendPasswordResetEmailInput,
   SendVerificationEmailInput,
 } from './email-provider.js';
@@ -7,7 +9,9 @@ import { SendEmailCommand, SESClient } from '@aws-sdk/client-ses';
 import { env } from '../../config/env.js';
 
 export class SesEmailProvider implements EmailProvider {
-  private readonly client = new SESClient({ region: env.AWS_REGION });
+  private readonly client = new SESClient({
+    region: env.AWS_EMAIL_REGION || env.AWS_REGION,
+  });
 
   private readonly fromEmail = env.SES_FROM_EMAIL ?? env.EMAIL_FROM;
 
@@ -55,6 +59,56 @@ export class SesEmailProvider implements EmailProvider {
       logContext: {
         type: 'password_reset',
         expiresAt: input.expiresAt.toISOString(),
+      },
+    });
+  }
+
+  async sendOtpEmail(input: SendOtpEmailInput): Promise<void> {
+    const expiresInMin = Math.ceil(input.expiresInSec / 60);
+    await this.sendEmail({
+      to: input.to,
+      subject: 'Your Vidyouth OTP',
+      text: [
+        `Your Vidyouth OTP is ${input.code}.`,
+        `It expires in ${expiresInMin} minutes.`,
+        '',
+        'Do not share this code with anyone.',
+      ].join('\n'),
+      html: [
+        '<p>Your Vidyouth OTP is:</p>',
+        `<p style="font-size:24px;font-weight:700;letter-spacing:4px;">${escapeHtml(input.code)}</p>`,
+        `<p>It expires in ${expiresInMin} minutes.</p>`,
+        '<p>Do not share this code with anyone.</p>',
+      ].join(''),
+      logger: input.logger,
+      logContext: {
+        type: 'email_otp',
+        expiresInSec: input.expiresInSec,
+      },
+    });
+  }
+
+  async sendMfaOtpEmail(input: SendMfaOtpEmailInput): Promise<void> {
+    const expiresInMin = Math.ceil(input.expiresInSec / 60);
+    await this.sendEmail({
+      to: input.to,
+      subject: 'Your Vidyouth sign-in code',
+      text: [
+        `Your Vidyouth sign-in code is ${input.code}.`,
+        '',
+        `It expires in ${expiresInMin} minutes.`,
+        'If you did not try to sign in, you can ignore this email.',
+      ].join('\n'),
+      html: [
+        '<p>Your Vidyouth sign-in code is:</p>',
+        `<p><strong>${escapeHtml(input.code)}</strong></p>`,
+        `<p>It expires in ${expiresInMin} minutes.</p>`,
+        '<p>If you did not try to sign in, you can ignore this email.</p>',
+      ].join(''),
+      logger: input.logger,
+      logContext: {
+        type: 'oauth_mfa_otp',
+        expiresInSec: input.expiresInSec,
       },
     });
   }

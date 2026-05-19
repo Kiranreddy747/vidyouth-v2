@@ -1,5 +1,7 @@
 import type {
   EmailProvider,
+  SendMfaOtpEmailInput,
+  SendOtpEmailInput,
   SendPasswordResetEmailInput,
   SendVerificationEmailInput,
 } from './email-provider.js';
@@ -26,6 +28,26 @@ export class MockEmailProvider implements EmailProvider {
         expiresAt: input.expiresAt.toISOString(),
       },
       '[DEV] Password reset link',
+    );
+  }
+
+  async sendOtpEmail(input: SendOtpEmailInput): Promise<void> {
+    this.logOtp(input, '[DEV] Email OTP issued');
+  }
+
+  async sendMfaOtpEmail(input: SendMfaOtpEmailInput): Promise<void> {
+    this.logOtp(input, '[DEV] OAuth MFA OTP issued');
+  }
+
+  private logOtp(input: SendOtpEmailInput, message: string): void {
+    input.logger.info(
+      {
+        provider: 'mock',
+        to: input.to,
+        code: input.code,
+        expiresInSec: input.expiresInSec,
+      },
+      message,
     );
   }
 }

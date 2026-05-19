@@ -634,8 +634,8 @@
     </div>
 
     <!-- Heading -->
-    <h1 class="auth-heading mb-1.5">Verify your email</h1>
-    <p class="auth-sub mb-6">
+    <h1 class="auth-heading mb-1.5" id="verifyHeading">Verify your email</h1>
+    <p class="auth-sub mb-6" id="verifySubheading">
       Enter the 6-digit code we sent to
       <span id="verifyEmail" style="color:var(--accent-primary);font-weight:700;">your email</span>.
     </p>
@@ -785,16 +785,34 @@
      Priority: ?email= query param → localStorage(vidyouth_pending_email).
      login.html / signup.html set the localStorage key before sending here. */
   const params = new URLSearchParams(location.search);
-  const EMAIL =
-    (params.get('email') || localStorage.getItem('vidyouth_pending_email') || '').trim();
+  const hashParams = new URLSearchParams(location.hash ? location.hash.slice(1) : '');
+  const isOauthMfa = hashParams.get('oauth_mfa_required') === 'true';
+  const oauthMfaToken = hashParams.get('mfa_token') || '';
+  const oauthProvider = hashParams.get('provider') || 'OAuth';
+  const EMAIL = isOauthMfa
+    ? (hashParams.get('email') || '').trim()
+    : (params.get('email') || localStorage.getItem('vidyouth_pending_email') || '').trim();
 
   const emailLabel = document.getElementById('verifyEmail');
+  const heading = document.getElementById('verifyHeading');
+  const subheading = document.getElementById('verifySubheading');
   if (EMAIL) {
     emailLabel.textContent = EMAIL;
-    localStorage.setItem('vidyouth_pending_email', EMAIL);
+    if (!isOauthMfa) {
+      localStorage.setItem('vidyouth_pending_email', EMAIL);
+    }
   } else {
     emailLabel.textContent = 'your email';
-    setAuthMessage('No email to verify. Go back to sign in and start again.', true);
+    setAuthMessage(isOauthMfa
+      ? 'No OAuth verification session found. Go back to sign in and start again.'
+      : 'No email to verify. Go back to sign in and start again.',
+      true);
+  }
+  if (isOauthMfa) {
+    const label = oauthProvider[0].toUpperCase() + oauthProvider.slice(1);
+    heading.textContent = 'Verify your sign-in';
+    subheading.innerHTML = `${label} verified. Enter the 6-digit code we sent to <span id="verifyEmail" style="color:var(--accent-primary);font-weight:700;"></span>.`;
+    document.getElementById('verifyEmail').textContent = EMAIL || 'your email';
   }
 
   /* ── OTP box behaviour: auto-advance, backspace, paste ── */
@@ -831,6 +849,17 @@
 
   /* ── Backend calls ── */
   async function requestOtp() {
+    if (isOauthMfa) {
+      if (!oauthMfaToken) throw new Error('invalid_or_expired_mfa_token');
+      const r = await fetch(`${API_BASE_URL}/auth/oauth/mfa/resend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mfa_token: oauthMfaToken }),
+      });
+      const p = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(p.error || 'Could not send code');
+      return p;
+    }
     const r = await fetch(`${API_BASE_URL}/auth/otp/request`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -841,6 +870,16 @@
     return p;
   }
   async function verifyOtp(code) {
+    if (isOauthMfa) {
+      const r = await fetch(`${API_BASE_URL}/auth/oauth/mfa/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mfa_token: oauthMfaToken, code }),
+      });
+      const p = r.status === 204 ? {} : await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(p.error || 'invalid_or_expired_mfa_code');
+      return p;
+    }
     const r = await fetch(`${API_BASE_URL}/auth/otp/verify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -884,7 +923,11 @@
   function translate(code) {
     switch (code) {
       case 'invalid_otp':         return 'That code is wrong or expired. Try again.';
+      case 'account_not_found':   return 'No account found for this email. Create an account first.';
       case 'invalid_credentials': return 'No account found for this email. Sign up first.';
+      case 'invalid_or_expired_mfa_code': return 'That sign-in code is wrong or expired. Start again from Google or Microsoft sign-in.';
+      case 'invalid_or_expired_mfa_token': return 'That sign-in session expired. Start again from Google or Microsoft sign-in.';
+      case 'otp_rate_limited':    return 'Too many codes requested. Wait a few minutes and retry.';
       case 'rate_limited':        return 'Too many requests. Wait a few minutes and retry.';
       case 'invalid_request':     return 'Enter all 6 digits.';
       default:                    return code ? code.replace(/_/g, ' ') : 'Verification failed.';
@@ -894,6 +937,10 @@
   /* ── Submit → verify the code ── */
   otpForm.addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (isOauthMfa && !oauthMfaToken) {
+      setAuthMessage('No OAuth verification session found. Go back to sign in and start again.', true);
+      return;
+    }
     if (!EMAIL) { setAuthMessage('No email to verify.', true); return; }
     const code = currentCode();
     if (code.length !== boxes.length) {
@@ -908,7 +955,10 @@
       boxes.forEach((b) => b.classList.add('filled'));
       setAuthMessage('✓ Verified! Opening dashboard…');
       if (payload && payload.access_token) storeTokens(payload);
-      localStorage.removeItem('vidyouth_pending_email');
+      if (!isOauthMfa) {
+        localStorage.removeItem('vidyouth_pending_email');
+      }
+      history.replaceState(null, '', location.pathname + location.search);
       setTimeout(() => { window.location.href = 'newhome.html'; }, 700);
     } catch (err) {
       boxes.forEach((b) => b.classList.add('otp-error'));
@@ -922,6 +972,10 @@
   /* ── On load: auto-send the first code ── */
   (async function autoSend() {
     if (!EMAIL) return;
+    if (isOauthMfa) {
+      setAuthMessage(`We sent a 6-digit code to ${EMAIL}.`);
+      return;
+    }
     setAuthMessage('Sending a code to your email…');
     try {
       await requestOtp();

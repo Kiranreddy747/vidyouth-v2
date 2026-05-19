@@ -32,7 +32,11 @@ export type AuditAction =
   // Phone OTP (PR #3 / Jagadheesh)
   | 'phone.otp.requested'
   | 'phone.otp.verified'
-  | 'phone.otp.failed';
+  | 'phone.otp.failed'
+  // OAuth MFA
+  | 'oauth.mfa.requested'
+  | 'oauth.mfa.verified'
+  | 'oauth.mfa.failed';
 
 export interface AuditEvent {
   userId?: string | undefined;
