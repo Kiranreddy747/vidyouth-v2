@@ -8,7 +8,13 @@ import { query } from '../db/pg.js';
 export type AuditAction =
   | 'admin.access'
   | 'admin.access.denied'
-  | 'admin.feature_flag.changed';
+  | 'admin.feature_flag.changed'
+  | 'org.created'
+  | 'org.approved'
+  | 'org.rejected'
+  | 'org.suspended'
+  | 'org.reactivated'
+  | 'admin.setting.changed';
 
 export interface AuditEvent {
   userId?: string | undefined;
