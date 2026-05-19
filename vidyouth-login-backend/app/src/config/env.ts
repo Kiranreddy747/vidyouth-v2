@@ -137,20 +137,27 @@ const envSchema = z.object({
 }).superRefine((value, ctx) => {
   if (value.NODE_ENV === 'test') return;
 
-  const needsAwsCredentials = value.EMAIL_PROVIDER === 'ses' || value.SMS_PROVIDER === 'sns';
-  if (needsAwsCredentials && !value.AWS_ACCESS_KEY_ID) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['AWS_ACCESS_KEY_ID'],
-      message: 'Required when EMAIL_PROVIDER=ses or SMS_PROVIDER=sns',
-    });
-  }
-  if (needsAwsCredentials && !value.AWS_SECRET_ACCESS_KEY) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['AWS_SECRET_ACCESS_KEY'],
-      message: 'Required when EMAIL_PROVIDER=ses or SMS_PROVIDER=sns',
-    });
+  // Static AWS keys are only mandated outside production. In production the
+  // service runs on an EC2 IAM instance role, so the AWS SDK resolves
+  // credentials from the default provider chain (instance metadata) and no
+  // AWS_ACCESS_KEY_ID/SECRET should be injected — shipping static keys to a
+  // fleet is exactly the footgun we're avoiding here.
+  if (value.NODE_ENV !== 'production') {
+    const needsAwsCredentials = value.EMAIL_PROVIDER === 'ses' || value.SMS_PROVIDER === 'sns';
+    if (needsAwsCredentials && !value.AWS_ACCESS_KEY_ID) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['AWS_ACCESS_KEY_ID'],
+        message: 'Required when EMAIL_PROVIDER=ses or SMS_PROVIDER=sns (non-production)',
+      });
+    }
+    if (needsAwsCredentials && !value.AWS_SECRET_ACCESS_KEY) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['AWS_SECRET_ACCESS_KEY'],
+        message: 'Required when EMAIL_PROVIDER=ses or SMS_PROVIDER=sns (non-production)',
+      });
+    }
   }
   if (value.SMS_PROVIDER === 'msg91' && !value.MSG91_AUTH_KEY) {
     ctx.addIssue({
