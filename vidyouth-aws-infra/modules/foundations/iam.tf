@@ -44,7 +44,7 @@ resource "aws_iam_role_policy_attachment" "ec2_ecr_read" {
 # Inline: tightly-scoped Secrets Manager read + KMS decrypt for our two keys.
 data "aws_iam_policy_document" "ec2_inline" {
   statement {
-    sid     = "ReadAppSecrets"
+    sid = "ReadAppSecrets"
     actions = [
       "secretsmanager:GetSecretValue",
       "secretsmanager:DescribeSecret",
@@ -94,6 +94,20 @@ data "aws_iam_policy_document" "ec2_inline" {
     resources = [
       "arn:aws:ssm:${data.aws_region.current.name}:${var.account_id}:parameter/${var.name_prefix}/*",
     ]
+  }
+
+  # Transactional email (SES) + OTP SMS (SNS). This is what lets the app run
+  # on the instance role instead of static AWS keys. SES SendEmail and SNS
+  # SMS Publish are not resource-scopable the way ARNs are, so they are
+  # constrained by action; the from-identity is enforced by SES verification.
+  statement {
+    sid = "SendEmailAndSms"
+    actions = [
+      "ses:SendEmail",
+      "ses:SendRawEmail",
+      "sns:Publish",
+    ]
+    resources = ["*"]
   }
 }
 
